@@ -114,18 +114,25 @@ async def discover_signals(client: Client):
             # Fallback - shouldn't happen
             response = {"signals": [], "custom_segment_proposals": []}
         
+        # Display the AI-native message if present
+        if response.get("message"):
+            console.print(f"\n[bold cyan]{response['message']}[/bold cyan]")
+        
         # Store context ID for use in subsequent activations
         global last_context_id
         if response.get("context_id"):
             last_context_id = response["context_id"]
-            console.print(f"\n[dim]Context ID: {last_context_id}[/dim]")
+            console.print(f"[dim]Context ID: {last_context_id}[/dim]")
+        
+        # Check if clarification is needed
+        if response.get("clarification_needed"):
+            console.print("\n[yellow]The request needs clarification for better results.[/yellow]")
         
         if not response.get("signals"):
-            console.print("[yellow]No signals found matching your criteria[/yellow]")
             return
         
         # Display results in an attractive table format
-        console.print(f"\n[bold green]🎯 Found {len(response['signals'])} signals[/bold green]")
+        console.print("\n[bold]Signal Details:[/bold]")
         
         # Create main results table
         table = Table(show_header=True, header_style="bold cyan", box=None)
@@ -252,29 +259,24 @@ async def activate_signal(client: Client):
         console.print("\n[dim]Activating signal...[/dim]")
         response = await client.call_tool("activate_signal", request_data)
         
-        # Display status based on response
-        status_emoji = {
-            "deployed": "🟢",
-            "activating": "🟡", 
-            "failed": "🔴"
-        }
+        # Display the AI-native message if present
+        if response.get("message"):
+            status_emoji = {
+                "deployed": "🟢",
+                "activating": "🟡", 
+                "failed": "🔴"
+            }
+            emoji = status_emoji.get(response.get('status', 'activating'), '🟡')
+            console.print(f"\n[bold cyan]{emoji} {response['message']}[/bold cyan]")
         
-        emoji = status_emoji.get(response.get('status', 'activating'), '🟡')
-        status = response.get('status', 'activating').upper()
+        # Display additional details
+        if response.get('deployed_at'):
+            console.print(f"[dim]Deployed at: {response['deployed_at']}[/dim]")
         
-        if response.get('status') == 'deployed':
-            console.print(f"[bold green]{emoji} Signal already deployed![/bold green]")
-            if response.get('deployed_at'):
-                console.print(f"Deployed: {response['deployed_at']}")
-        elif response.get('status') == 'activating':
-            console.print(f"[bold yellow]{emoji} Activation initiated![/bold yellow]")
-            console.print(f"Estimated Duration: {response['estimated_activation_duration_minutes']} minutes")
-        else:
-            console.print(f"[bold red]{emoji} Activation failed![/bold red]")
-            if response.get('error_message'):
-                console.print(f"Error: {response['error_message']}")
+        console.print(f"[dim]Platform Segment ID: {response['decisioning_platform_segment_id']}[/dim]")
         
-        console.print(f"Platform Segment ID: {response['decisioning_platform_segment_id']}")
+        if response.get('context_id'):
+            console.print(f"[dim]Context ID: {response['context_id']}[/dim]")
         
         return response
     
@@ -385,16 +387,19 @@ async def quick_prompt():
                 # Fallback - shouldn't happen
                 response = {"signals": [], "custom_segment_proposals": []}
             
+            # Display the AI-native message if present
+            if response.get("message"):
+                console.print(f"[bold cyan]{response['message']}[/bold cyan]")
+            
             # Display context ID if available
             if response.get("context_id"):
-                console.print(f"\n[dim]Context ID: {response['context_id']}[/dim]")
+                console.print(f"[dim]Context ID: {response['context_id']}[/dim]")
             
             if not response.get("signals"):
-                console.print("[yellow]No signals found matching your criteria[/yellow]")
                 return
             
             # Display results using the same attractive format as interactive mode
-            console.print(f"[bold green]🎯 Found {len(response['signals'])} signals[/bold green]")
+            console.print("\n[bold]Signal Details:[/bold]")
             
             # Create main results table
             table = Table(show_header=True, header_style="bold cyan", box=None)

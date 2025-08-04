@@ -532,10 +532,27 @@ def get_signals(
     
     store_discovery_context(context_id, signal_spec, discovered_signal_ids, principal_id)
     
+    # Generate human-readable message
+    signal_count = len(signals)
+    proposal_count = len(custom_proposals) if custom_proposals else 0
+    
+    if signal_count == 0 and proposal_count == 0:
+        message = f"No signals found matching '{signal_spec}'. Try broadening your search criteria."
+    elif signal_count > 0 and proposal_count > 0:
+        platform_count = len(set(d.platform for s in signals for d in s.deployments))
+        message = f"Found {signal_count} signals matching '{signal_spec}' across {platform_count} platforms, plus {proposal_count} custom segment proposals"
+    elif signal_count > 0:
+        platform_count = len(set(d.platform for s in signals for d in s.deployments))
+        message = f"Found {signal_count} signals matching '{signal_spec}' across {platform_count} platforms"
+    else:
+        message = f"No existing signals match '{signal_spec}', but I've proposed {proposal_count} custom segments that could be created"
+    
     return GetSignalsResponse(
+        message=message,
         signals=signals,
         custom_segment_proposals=custom_proposals if custom_proposals else None,
-        context_id=context_id
+        context_id=context_id,
+        clarification_needed=False  # Could be True if signal_spec is too vague
     )
 
 
@@ -563,6 +580,7 @@ def activate_signal(
             if existing.get('status') == 'deployed':
                 # Already deployed - return current status
                 return ActivateSignalResponse(
+                    message=f"Custom segment '{segment['name']}' is already deployed on {platform}",
                     decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
                     estimated_activation_duration_minutes=0,
                     status="deployed",
@@ -581,6 +599,7 @@ def activate_signal(
                     console.print(f"[bold green]Custom segment '{signals_agent_segment_id}' is now live on {platform}[/bold green]")
                     
                     return ActivateSignalResponse(
+                        message=f"Custom segment '{segment['name']}' is now active on {platform}",
                         decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
                         estimated_activation_duration_minutes=0,
                         status="deployed",
@@ -591,6 +610,7 @@ def activate_signal(
                     # Still activating
                     remaining_minutes = int((estimated_completion - datetime.now()).total_seconds() / 60)
                     return ActivateSignalResponse(
+                        message=f"Custom segment '{segment['name']}' is still activating on {platform}, {remaining_minutes} minutes remaining",
                         decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
                         estimated_activation_duration_minutes=remaining_minutes,
                         status="activating",
@@ -623,6 +643,7 @@ def activate_signal(
             link_activation_to_context(context_id, signals_agent_segment_id, platform, account)
         
         return ActivateSignalResponse(
+            message=f"Creating and activating custom segment '{segment['name']}' on {platform}, estimated {activation_duration} minutes",
             decisioning_platform_segment_id=decisioning_platform_segment_id,
             estimated_activation_duration_minutes=activation_duration,
             status="activating",
@@ -667,6 +688,7 @@ def activate_signal(
             # Already deployed - return current status instead of error
             conn.close()
             return ActivateSignalResponse(
+                message=f"Signal '{segment['name']}' is already deployed on {platform}",
                 decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
                 estimated_activation_duration_minutes=0,
                 status="deployed",
@@ -684,6 +706,7 @@ def activate_signal(
             conn.close()
             
             return ActivateSignalResponse(
+                message=f"Signal '{segment['name']}' has been activated on {platform}",
                 decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
                 estimated_activation_duration_minutes=0,
                 status="deployed",
@@ -728,6 +751,7 @@ def activate_signal(
         link_activation_to_context(context_id, signals_agent_segment_id, platform, account)
     
     return ActivateSignalResponse(
+        message=f"Activating signal '{segment['name']}' on {platform}, estimated {activation_duration} minutes",
         decisioning_platform_segment_id=decisioning_platform_segment_id,
         estimated_activation_duration_minutes=activation_duration,
         status="activating",

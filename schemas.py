@@ -129,12 +129,22 @@ class CustomSegmentProposal(BaseModel):
 
 class GetSignalsResponse(BaseModel):
     """Response from get_signals."""
+    message: str = Field(
+        ...,
+        description="Human-readable summary of the response",
+        examples=["Found 5 signals matching 'luxury automotive buyers' across 3 platforms"]
+    )
     signals: List[SignalResponse]
     custom_segment_proposals: Optional[List[CustomSegmentProposal]] = None
     context_id: str = Field(
         ...,
         description="Context ID for this discovery session, use in subsequent activate_signal calls",
         examples=["ctx_1735650000_a1b2c3d4"]
+    )
+    clarification_needed: Optional[bool] = Field(
+        None,
+        description="True if the request needs clarification to provide better results",
+        examples=[False]
     )
 
 
@@ -152,6 +162,15 @@ class ActivateSignalRequest(BaseModel):
 
 class ActivateSignalResponse(BaseModel):
     """Response from activate_signal."""
+    message: str = Field(
+        ...,
+        description="Human-readable summary of the activation result",
+        examples=[
+            "Signal 'Luxury Automotive Context' is now active on the-trade-desk",
+            "Signal already deployed on platform index-exchange", 
+            "Activating custom segment, estimated 2 minutes"
+        ]
+    )
     decisioning_platform_segment_id: str
     estimated_activation_duration_minutes: int
     status: Literal["deployed", "activating", "failed"] = "activating"
