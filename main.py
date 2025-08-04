@@ -49,8 +49,8 @@ def store_discovery_context(context_id: str, signal_spec: str, results: List[str
         "activations": []
     }
     
-    # Clean up old contexts (older than 24 hours)
-    cutoff = datetime.now() - timedelta(hours=24)
+    # Clean up old contexts (older than 7 days to accommodate 72-hour activation windows)
+    cutoff = datetime.now() - timedelta(days=7)
     expired_contexts = [
         cid for cid, ctx in discovery_contexts.items()
         if datetime.fromisoformat(ctx["timestamp"]) < cutoff

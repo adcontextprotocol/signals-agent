@@ -14,7 +14,7 @@ We've successfully implemented context ID support to maintain conversation state
 
 ### 2. Server Implementation (`main.py`)
 - Added context ID generation: `ctx_<timestamp>_<random8chars>`
-- Added in-memory context storage with 24-hour expiration
+- Added in-memory context storage with 7-day expiration (supports 72-hour activation windows)
 - `get_signals` now generates/reuses context IDs and stores discovery results
 - `activate_signal` accepts context ID and links activations to discoveries
 
@@ -80,6 +80,13 @@ Context ID: ctx_1754302308_97aj7hde
  #    Audience                   Provider      Coverage       CPM  Status       
  1    Luxury Automotive Context  Peer39           15.0%     $2.50  🟡 9/10 Live
 ```
+
+## Context ID Lifetime
+
+Context IDs are stored for 7 days to accommodate:
+- Audience activations that can take up to 72 hours
+- Multi-day workflows where users discover signals and activate them later
+- Buffer time for troubleshooting and analytics
 
 ## Next Steps
 

@@ -15,7 +15,7 @@ This document summarizes all the changes made to ensure compatibility with the A
 - ✅ **Discovery tracking** - Store search parameters and discovered signals
 - ✅ **Activation linking** - Link activations back to their discovery context
 - ✅ **Client support** - Display and use context IDs in interactions
-- ✅ **Memory management** - 24-hour expiration for context storage
+- ✅ **Memory management** - 7-day expiration for context storage (supports 72-hour activation windows)
 
 ### 3. AI-Native Message Format (PR #21)
 - ✅ **Universal message field** - First field in all responses

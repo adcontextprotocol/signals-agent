@@ -128,7 +128,7 @@ class TestAudienceActivationProtocol(unittest.TestCase):
         # Check duration is reasonable
         duration = response["estimated_activation_duration_minutes"]
         self.assertGreater(duration, 0)
-        self.assertLess(duration, 1440)  # Less than 24 hours
+        self.assertLess(duration, 4320)  # Less than 72 hours (some audiences can take up to 72 hours)
     
     @patch('main.get_db_connection')
     def test_activate_audience_not_found(self, mock_conn):
