@@ -139,20 +139,10 @@ class ActivateSignalResponse(BaseModel):
     """Response from activate_signal."""
     decisioning_platform_segment_id: str
     estimated_activation_duration_minutes: int
-
-
-class CheckSignalStatusRequest(BaseModel):
-    """Request to check signal status."""
-    signals_agent_segment_id: str
-    decisioning_platform: str
-    account: Optional[str] = None
-
-
-class CheckSignalStatusResponse(BaseModel):
-    """Response from check_signal_status."""
-    status: Literal["deployed", "activating", "failed", "not_found"]
+    status: Literal["deployed", "activating", "failed"] = "activating"
     deployed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+
 
 
 

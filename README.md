@@ -92,11 +92,10 @@ uv run python main.py
 
 ## Protocol Implementation
 
-This agent implements the following tools from the Signals Activation Protocol:
+This agent implements the following tasks from the Signals Activation Protocol:
 
 - `get_signals`: Discover signals based on marketing specifications
-- `activate_signal`: Activate signals for specific platforms/accounts  
-- `check_signal_status`: Check deployment status of signals
+- `activate_signal`: Activate signals for specific platforms/accounts (includes status monitoring)
 
 ### Principal-Based Access Control
 

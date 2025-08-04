@@ -164,12 +164,12 @@ mcp = FastMCP(name="SignalsActivationAgent")
 console = Console()
 
 
-# --- MCP Tools ---
+# --- MCP Tasks ---
 
 @mcp.tool
 def get_signal_examples() -> Dict[str, Any]:
     """
-    Get examples of how to use the signal discovery tools.
+    Get examples of how to use the signal discovery tasks.
     
     Returns common usage patterns and platform configurations.
     """
@@ -243,7 +243,7 @@ def get_signals(
     """
     Discover relevant signals based on a marketing specification.
     
-    This tool uses AI to match your natural language signal description with available segments
+    This task uses AI to match your natural language signal description with available segments
     across multiple decisioning platforms.
     
     Args:
@@ -505,7 +505,38 @@ def activate_signal(
         if activation_key in segment_activations:
             existing = segment_activations[activation_key]
             if existing.get('status') == 'deployed':
-                raise ValueError("Custom segment already activated for this platform/account")
+                # Already deployed - return current status
+                return ActivateSignalResponse(
+                    decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
+                    estimated_activation_duration_minutes=0,
+                    status="deployed",
+                    deployed_at=datetime.fromisoformat(existing.get('deployed_at', existing['activation_started_at']))
+                )
+            elif existing.get('status') == 'activating':
+                # Check if enough time has passed to complete the activation
+                estimated_completion = datetime.fromisoformat(existing['estimated_completion'])
+                if datetime.now() >= estimated_completion:
+                    # Mark as deployed
+                    existing['status'] = 'deployed'
+                    existing['deployed_at'] = datetime.now().isoformat()
+                    segment_activations[activation_key] = existing
+                    
+                    console.print(f"[bold green]Custom segment '{signals_agent_segment_id}' is now live on {platform}[/bold green]")
+                    
+                    return ActivateSignalResponse(
+                        decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
+                        estimated_activation_duration_minutes=0,
+                        status="deployed",
+                        deployed_at=datetime.now()
+                    )
+                else:
+                    # Still activating
+                    remaining_minutes = int((estimated_completion - datetime.now()).total_seconds() / 60)
+                    return ActivateSignalResponse(
+                        decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
+                        estimated_activation_duration_minutes=remaining_minutes,
+                        status="activating"
+                    )
         
         # Generate platform segment ID
         account_suffix = f"_{account}" if account else ""
@@ -530,7 +561,8 @@ def activate_signal(
         
         return ActivateSignalResponse(
             decisioning_platform_segment_id=decisioning_platform_segment_id,
-            estimated_activation_duration_minutes=activation_duration
+            estimated_activation_duration_minutes=activation_duration,
+            status="activating"
         )
     
     # Handle regular database segments
@@ -566,8 +598,32 @@ def activate_signal(
     """, (signals_agent_segment_id, platform, account))
     
     existing = cursor.fetchone()
-    if existing and existing['is_live']:
-        raise ValueError("Signal already activated for this platform/account")
+    if existing:
+        if existing['is_live']:
+            # Already deployed - return current status instead of error
+            conn.close()
+            return ActivateSignalResponse(
+                decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
+                estimated_activation_duration_minutes=0,
+                status="deployed",
+                deployed_at=datetime.fromisoformat(existing['deployed_at']) if existing['deployed_at'] else None
+            )
+        else:
+            # Still activating - for demo purposes, immediately mark as deployed
+            cursor.execute("""
+                UPDATE platform_deployments 
+                SET is_live = 1, deployed_at = ?
+                WHERE signals_agent_segment_id = ? AND platform = ? AND account IS ?
+            """, (datetime.now().isoformat(), signals_agent_segment_id, platform, account))
+            conn.commit()
+            conn.close()
+            
+            return ActivateSignalResponse(
+                decisioning_platform_segment_id=existing['decisioning_platform_segment_id'],
+                estimated_activation_duration_minutes=0,
+                status="deployed",
+                deployed_at=datetime.now()
+            )
     
     # Generate platform segment ID
     account_suffix = f"_{account}" if account else ""
@@ -601,107 +657,12 @@ def activate_signal(
     
     console.print(f"[bold green]Activating signal {signals_agent_segment_id} on {platform}[/bold green]")
     
-    return ActivateAudienceResponse(
+    return ActivateSignalResponse(
         decisioning_platform_segment_id=decisioning_platform_segment_id,
-        estimated_activation_duration_minutes=activation_duration
+        estimated_activation_duration_minutes=activation_duration,
+        status="activating"
     )
 
-
-@mcp.tool
-def check_signal_status(
-    signals_agent_segment_id: str,
-    decisioning_platform: str,
-    account: Optional[str] = None,
-    principal_id: Optional[str] = None
-) -> CheckSignalStatusResponse:
-    """Check the deployment status of a signal on a decisioning platform."""
-    
-    # Check if this is a custom segment
-    if signals_agent_segment_id.startswith("custom_"):
-        activation_key = f"{signals_agent_segment_id}_{decisioning_platform}_{account or 'default'}"
-        
-        if activation_key not in segment_activations:
-            return CheckSignalStatusResponse(status="not_found")
-        
-        activation = segment_activations[activation_key]
-        
-        if activation['status'] == 'deployed':
-            return CheckSignalStatusResponse(
-                status="deployed",
-                deployed_at=datetime.fromisoformat(activation.get('deployed_at', activation['activation_started_at']))
-            )
-        elif activation['status'] == 'activating':
-            # Check if enough time has passed to complete the activation
-            estimated_completion = datetime.fromisoformat(activation['estimated_completion'])
-            if datetime.now() >= estimated_completion:
-                # Mark as deployed
-                activation['status'] = 'deployed'
-                activation['deployed_at'] = datetime.now().isoformat()
-                segment_activations[activation_key] = activation
-                
-                console.print(f"[bold green]Custom segment '{signals_agent_segment_id}' is now live on {decisioning_platform}[/bold green]")
-                
-                return CheckSignalStatusResponse(
-                    status="deployed",
-                    deployed_at=datetime.now()
-                )
-            else:
-                # Still activating
-                return CheckSignalStatusResponse(status="activating")
-        
-        return CheckSignalStatusResponse(status="failed")
-    
-    # Handle regular database segments
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Check principal access if specified
-    if principal_id:
-        cursor.execute("SELECT * FROM signal_segments WHERE id = ?", (signals_agent_segment_id,))
-        segment = cursor.fetchone()
-        if segment:
-            cursor.execute("SELECT access_level FROM principals WHERE principal_id = ?", (principal_id,))
-            principal_row = cursor.fetchone()
-            if principal_row:
-                principal_access_level = principal_row['access_level']
-                
-                # Check if principal can access this segment
-                if segment['catalog_access'] == 'private' and principal_access_level != 'private':
-                    return CheckSignalStatusResponse(status="not_found")  # Don't reveal existence
-                elif segment['catalog_access'] == 'personalized' and principal_access_level == 'public':
-                    return CheckSignalStatusResponse(status="not_found")  # Don't reveal existence
-    
-    cursor.execute("""
-        SELECT * FROM platform_deployments 
-        WHERE signals_agent_segment_id = ? AND platform = ? AND account IS ?
-    """, (signals_agent_segment_id, decisioning_platform, account))
-    
-    deployment = cursor.fetchone()
-    
-    if not deployment:
-        conn.close()
-        return CheckSignalStatusResponse(status="not_found")
-    
-    if deployment['is_live']:
-        conn.close()
-        return CheckSignalStatusResponse(
-            status="deployed",
-            deployed_at=datetime.fromisoformat(deployment['deployed_at']) if deployment['deployed_at'] else None
-        )
-    else:
-        # For demo purposes, immediately mark as deployed
-        cursor.execute("""
-            UPDATE platform_deployments 
-            SET is_live = 1, deployed_at = ?
-            WHERE signals_agent_segment_id = ? AND platform = ? AND account IS ?
-        """, (datetime.now().isoformat(), signals_agent_segment_id, decisioning_platform, account))
-        conn.commit()
-        conn.close()
-        
-        return CheckSignalStatusResponse(
-            status="deployed",
-            deployed_at=datetime.now()
-        )
 
 
 

@@ -32,8 +32,8 @@ def print_help():
     commands.add_column("Description", style="white")
     
     commands.add_row("discover", "Discover signals with natural language")
-    commands.add_row("activate", "Activate a signal on a platform")
-    commands.add_row("status", "Check signal activation status")
+    commands.add_row("activate", "Activate a signal on a platform (shows current status)")
+    commands.add_row("status", "Check signal status (redirects to activate)")
     commands.add_row("help", "Show this help message")
     commands.add_row("quit", "Exit the client")
     
@@ -230,9 +230,29 @@ async def activate_signal(client: Client):
         console.print("\n[dim]Activating signal...[/dim]")
         response = await client.call_tool("activate_signal", request_data)
         
-        console.print(f"[bold green]✅ Activation initiated![/bold green]")
+        # Display status based on response
+        status_emoji = {
+            "deployed": "🟢",
+            "activating": "🟡", 
+            "failed": "🔴"
+        }
+        
+        emoji = status_emoji.get(response.get('status', 'activating'), '🟡')
+        status = response.get('status', 'activating').upper()
+        
+        if response.get('status') == 'deployed':
+            console.print(f"[bold green]{emoji} Signal already deployed![/bold green]")
+            if response.get('deployed_at'):
+                console.print(f"Deployed: {response['deployed_at']}")
+        elif response.get('status') == 'activating':
+            console.print(f"[bold yellow]{emoji} Activation initiated![/bold yellow]")
+            console.print(f"Estimated Duration: {response['estimated_activation_duration_minutes']} minutes")
+        else:
+            console.print(f"[bold red]{emoji} Activation failed![/bold red]")
+            if response.get('error_message'):
+                console.print(f"Error: {response['error_message']}")
+        
         console.print(f"Platform Segment ID: {response['decisioning_platform_segment_id']}")
-        console.print(f"Estimated Duration: {response['estimated_activation_duration_minutes']} minutes")
         
         return response
     
@@ -241,49 +261,12 @@ async def activate_signal(client: Client):
         return None
 
 async def check_status(client: Client):
-    """Interactive status checking."""
+    """Check signal status by re-activating (which now returns current status)."""
     console.print("\n[bold blue]📊 Status Check[/bold blue]")
+    console.print("[dim]Note: Status check is now integrated into signal activation[/dim]\n")
     
-    segment_id = Prompt.ask("Signal segment ID")
-    platform = Prompt.ask("Platform")
-    account = Prompt.ask("Account (optional)", default="")
-    principal_id = Prompt.ask("Principal ID (optional)", default="")
-    
-    request_data = {
-        "signals_agent_segment_id": segment_id,
-        "decisioning_platform": platform
-    }
-    
-    if account:
-        request_data["account"] = account
-    
-    if principal_id:
-        request_data["principal_id"] = principal_id
-    
-    try:
-        response = await client.call_tool("check_signal_status", request_data)
-        
-        status_emoji = {
-            "deployed": "🟢",
-            "activating": "🟡", 
-            "failed": "🔴",
-            "not_found": "❓"
-        }
-        
-        emoji = status_emoji.get(response["status"], "❓")
-        console.print(f"\n{emoji} Status: [bold]{response['status'].upper()}[/bold]")
-        
-        if response.get("deployed_at"):
-            console.print(f"Deployed: {response['deployed_at']}")
-        
-        if response.get("error_message"):
-            console.print(f"[red]Error: {response['error_message']}[/red]")
-        
-        return response
-    
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        return None
+    # Just call activate_signal which will return the current status
+    await activate_signal(client)
 
 async def main():
     """Main client loop."""

@@ -41,42 +41,6 @@ wheels = [
 ]
 
 [[package]]
-name = "audience-agent"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "fastmcp" },
-    { name = "google-generativeai" },
-    { name = "pydantic" },
-    { name = "requests" },
-    { name = "rich" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "flake8" },
-    { name = "isort" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "fastmcp", specifier = ">=0.2.0" },
-    { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
-    { name = "google-generativeai", specifier = ">=0.3.0" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
-    { name = "requests", specifier = ">=2.32.4" },
-    { name = "rich", specifier = ">=13.0.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "authlib"
 version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1314,6 +1278,42 @@ sdist = { url = "https://files.pythonhosted.org/packages/da/8a/22b7beea3ee0d44b1
 wheels = [
     { url = "https://files.pythonhosted.org/packages/64/8d/0133e4eb4beed9e425d9a98ed6e081a55d195481b7632472be1af08d2f6b/rsa-4.9.1-py3-none-any.whl", hash = "sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762", size = 34696, upload-time = "2025-04-16T09:51:17.142Z" },
 ]
+
+[[package]]
+name = "signals-agent"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "google-generativeai" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "rich" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "black" },
+    { name = "flake8" },
+    { name = "isort" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "fastmcp", specifier = ">=0.2.0" },
+    { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "google-generativeai", specifier = ">=0.3.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "requests", specifier = ">=2.32.4" },
+    { name = "rich", specifier = ">=13.0.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "sniffio"

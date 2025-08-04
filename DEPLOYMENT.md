@@ -97,12 +97,12 @@ The live demo provides:
 
 2. **MCP Client** (`client.py`):
    - Command-line interface
-   - Interactive mode for testing all protocol tools
+   - Interactive mode for testing all protocol tasks
    - Batch query mode with `--prompt`
 
 3. **Protocol Server** (`main.py`):
    - Full MCP server implementation
-   - Three protocol tools: `get_audiences`, `activate_audience`, `check_audience_status`
+   - Two protocol tasks: `get_signals`, `activate_signal` (includes status monitoring)
    - AI-powered ranking and custom segment generation
 
 ## Data
