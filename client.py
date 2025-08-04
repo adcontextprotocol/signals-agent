@@ -15,6 +15,9 @@ from schemas import *
 
 console = Console()
 
+# Store the last context ID from discovery for use in activation
+last_context_id = None
+
 def print_banner():
     """Print the client banner."""
     console.print(Panel(
@@ -110,6 +113,12 @@ async def discover_signals(client: Client):
         else:
             # Fallback - shouldn't happen
             response = {"signals": [], "custom_segment_proposals": []}
+        
+        # Store context ID for use in subsequent activations
+        global last_context_id
+        if response.get("context_id"):
+            last_context_id = response["context_id"]
+            console.print(f"\n[dim]Context ID: {last_context_id}[/dim]")
         
         if not response.get("signals"):
             console.print("[yellow]No signals found matching your criteria[/yellow]")
@@ -215,6 +224,16 @@ async def activate_signal(client: Client):
     account = Prompt.ask("Account (optional)", default="")
     principal_id = Prompt.ask("Principal ID (optional)", default="")
     
+    # Check if we have a context ID from recent discovery
+    global last_context_id
+    use_context = False
+    if last_context_id:
+        use_context = Prompt.ask(
+            f"Use context from recent discovery? ({last_context_id[:20]}...)", 
+            choices=["y", "n"], 
+            default="y"
+        ) == "y"
+    
     request_data = {
         "signals_agent_segment_id": segment_id,
         "platform": platform
@@ -225,6 +244,9 @@ async def activate_signal(client: Client):
     
     if principal_id:
         request_data["principal_id"] = principal_id
+    
+    if use_context and last_context_id:
+        request_data["context_id"] = last_context_id
     
     try:
         console.print("\n[dim]Activating signal...[/dim]")
@@ -362,6 +384,10 @@ async def quick_prompt():
             else:
                 # Fallback - shouldn't happen
                 response = {"signals": [], "custom_segment_proposals": []}
+            
+            # Display context ID if available
+            if response.get("context_id"):
+                console.print(f"\n[dim]Context ID: {response['context_id']}[/dim]")
             
             if not response.get("signals"):
                 console.print("[yellow]No signals found matching your criteria[/yellow]")

@@ -109,6 +109,11 @@ class GetSignalsRequest(BaseModel):
         description="Your principal/account ID for accessing private catalogs and custom pricing",
         examples=["acme_corp", "agency_123"]
     )
+    context_id: Optional[str] = Field(
+        None,
+        description="Optional context ID from a previous interaction to maintain conversation state",
+        examples=["ctx_1735650000_a1b2c3d4"]
+    )
 
 
 class CustomSegmentProposal(BaseModel):
@@ -126,6 +131,11 @@ class GetSignalsResponse(BaseModel):
     """Response from get_signals."""
     signals: List[SignalResponse]
     custom_segment_proposals: Optional[List[CustomSegmentProposal]] = None
+    context_id: str = Field(
+        ...,
+        description="Context ID for this discovery session, use in subsequent activate_signal calls",
+        examples=["ctx_1735650000_a1b2c3d4"]
+    )
 
 
 class ActivateSignalRequest(BaseModel):
@@ -133,6 +143,11 @@ class ActivateSignalRequest(BaseModel):
     signals_agent_segment_id: str
     platform: str
     account: Optional[str] = None
+    context_id: Optional[str] = Field(
+        None,
+        description="Context ID from the discovery session that found this signal",
+        examples=["ctx_1735650000_a1b2c3d4"]
+    )
 
 
 class ActivateSignalResponse(BaseModel):
@@ -142,6 +157,11 @@ class ActivateSignalResponse(BaseModel):
     status: Literal["deployed", "activating", "failed"] = "activating"
     deployed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    context_id: Optional[str] = Field(
+        None,
+        description="Context ID linking this activation to its discovery session",
+        examples=["ctx_1735650000_a1b2c3d4"]
+    )
 
 
 
