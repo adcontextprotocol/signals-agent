@@ -369,7 +369,7 @@ async def handle_a2a_task(request: Dict[str, Any]):
                     task_response = {
                         "id": task_id,
                         "kind": "task",
-                        "contextId": context_id,
+                        "contextId": context_id,  # Preserve the existing context_id for continuity
                         "status": {
                             "state": "completed",
                             "timestamp": datetime.now().isoformat(),
@@ -431,10 +431,14 @@ async def handle_a2a_task(request: Dict[str, Any]):
             }
             
             # Build the task response with proper status structure
+            # For new queries, use the existing context_id if provided, otherwise use the new one from response
+            # This maintains conversation continuity when context_id is passed
+            final_context_id = context_id if context_id else response.context_id
+            
             task_response = {
                 "id": task_id,
                 "kind": "task",
-                "contextId": context_id or response.context_id,
+                "contextId": final_context_id,
                 "status": {
                     "state": "completed",  # Using TaskState enum value
                     "timestamp": datetime.now().isoformat(),
@@ -442,7 +446,7 @@ async def handle_a2a_task(request: Dict[str, Any]):
                 },
                 "metadata": {
                     "signal_count": len(response.signals),
-                    "context_id": response.context_id
+                    "context_id": final_context_id
                 }
             }
             

@@ -53,7 +53,7 @@ def generate_contextual_response(
             "coverage": signal.get("coverage_percentage"),
             "cpm": signal.get("pricing", {}).get("cpm") if isinstance(signal.get("pricing"), dict) else None,
             "provider": signal.get("data_provider", "Unknown"),
-            "platforms": [d.get("platform") for d in signal.get("deployments", []) if d.get("is_live")],
+            "platforms": list(set([d.get("platform") for d in signal.get("deployments", []) if d.get("is_live")])),  # Deduplicate platforms
             "id": signal.get("signals_agent_segment_id")
         }
         signal_summaries.append(summary)
@@ -122,7 +122,9 @@ def generate_contextual_response(
                 if top_signal.get('cpm'):
                     fallback += f"at ${top_signal['cpm']:.2f} CPM "
                 if top_signal.get('platforms'):
-                    fallback += f"available on {', '.join(top_signal['platforms'])}"
+                    # Deduplicate platforms in case of duplicates
+                    unique_platforms = list(set(top_signal['platforms']))
+                    fallback += f"available on {', '.join(unique_platforms)}"
         
         return fallback
 
