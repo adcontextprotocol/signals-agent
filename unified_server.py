@@ -292,124 +292,144 @@ async def handle_a2a_task(request: Dict[str, Any]):
             # Check if this is a contextual follow-up question
             query_lower = query.lower()
             
-            # Check for custom segment/signal queries
-            is_custom_segment_query = any([
-                "custom segment" in query_lower,
-                "custom signal" in query_lower,
-                "tell me about the custom" in query_lower,
-                "tell me more about the custom" in query_lower,
-                "what custom" in query_lower,
-                "explain the custom" in query_lower,
-                "describe the custom" in query_lower,
-                "more about custom" in query_lower
+            # Check for contextual queries that should use previous search results
+            is_contextual_query = context_id and any([
+                "tell me" in query_lower,
+                "more about" in query_lower,
+                "explain" in query_lower,
+                "describe" in query_lower,
+                "what about" in query_lower,
+                "details" in query_lower,
+                "information about" in query_lower,
+                "those" in query_lower,
+                "these" in query_lower,
+                "the signal" in query_lower,
+                "the audience" in query_lower,
+                "custom segment" in query_lower
             ])
             
-            # Check for signal detail queries
-            is_signal_detail_query = any([
-                "tell me about the signal" in query_lower,
-                "tell me more about" in query_lower,
-                "can you tell me about" in query_lower,
-                "explain the signal" in query_lower,
-                "describe the signal" in query_lower,
-                "what about the" in query_lower and "signal" in query_lower,
-                "details about" in query_lower,
-                "more information" in query_lower
-            ])
-            
-            
-            # If this is asking about custom segments and we have a context_id
-            if is_custom_segment_query and context_id:
-                # Try to retrieve the previous response from context
-                # For now, we'll generate a helpful response explaining what custom segments are
-                # In a production system, you'd store and retrieve the actual context
+            # If this is a contextual query, retrieve and use previous context
+            if is_contextual_query:
+                # Try to retrieve the previous context from database
+                import sqlite3
+                conn = sqlite3.connect('signals_agent.db', timeout=30.0)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
                 
-                parts = [{
-                    "kind": "text",
-                    "text": (
-                        "Custom segments are AI-generated audience proposals based on your search criteria. "
-                        "These segments don't exist yet but can be created on demand by combining existing data signals. "
-                        "\n\nTo see custom segment proposals, run a discovery query first (e.g., 'sports audiences'). "
-                        "The system will analyze available segments and suggest custom combinations that better match your needs. "
-                        "\n\nEach custom segment proposal includes:\n"
-                        "• A descriptive name\n"
-                        "• Estimated coverage and CPM\n"
-                        "• The rationale for why it matches your criteria\n"
-                        "• A unique ID for activation\n\n"
-                        "You can activate these custom segments using their IDs, and they'll be deployed to your chosen platforms."
+                cursor.execute("""
+                    SELECT metadata FROM contexts 
+                    WHERE context_id = ? AND context_type = 'discovery'
+                """, (context_id,))
+                
+                context_result = cursor.fetchone()
+                conn.close()
+                
+                if context_result:
+                    # Parse the stored metadata
+                    import json as json_lib
+                    metadata = json_lib.loads(context_result['metadata'])
+                    original_query = metadata.get('query', '')
+                    signal_ids = metadata.get('signal_ids', [])
+                    
+                    # Now perform a new search with the original query to get fresh data
+                    # This ensures we have the latest information
+                    internal_request = GetSignalsRequest(
+                        signal_spec=original_query,  # Use original query, not the follow-up
+                        deliver_to=params.get("deliver_to", {"platforms": "all", "countries": ["US"]}),
+                        filters=params.get("filters"),
+                        max_results=params.get("max_results", 10),
+                        principal_id=params.get("principal_id")
                     )
-                }]
-                
-                status_message = {
-                    "kind": "message",
-                    "message_id": f"msg_{datetime.now().timestamp()}",
-                    "parts": parts,
-                    "role": "agent"
-                }
-                
-                task_response = {
-                    "id": task_id,
-                    "kind": "task",
-                    "contextId": context_id,
-                    "status": {
-                        "state": "completed",
-                        "timestamp": datetime.now().isoformat(),
-                        "message": status_message
-                    },
-                    "metadata": {
-                        "response_type": "contextual_explanation"
-                    }
-                }
-                
-                return task_response
-            
-            # If this is asking for signal details and we have a context_id
-            elif is_signal_detail_query and context_id:
-                # Generate a detailed explanation of signals
-                # In production, would retrieve the actual previous signals from context
-                
-                parts = [{
-                    "kind": "text",
-                    "text": (
-                        "Based on your previous search, here are details about the signals found:\n\n"
-                        "**Sports Enthusiasts - Public**\n"
-                        "• Coverage: 45% of the addressable market\n"
-                        "• CPM: $3.50 per thousand impressions\n"
-                        "• Data Provider: Polk\n"
-                        "• Description: Broad sports audience available platform-wide\n"
-                        "• Deployment: Available on Index Exchange and The Trade Desk\n"
-                        "• Activation Time: ~60 minutes\n\n"
-                        "This signal targets users interested in sports content, including:\n"
-                        "- Sports news readers\n"
-                        "- Fantasy sports players\n"
-                        "- Sports merchandise buyers\n"
-                        "- Live sports streamers\n\n"
-                        "The signal is immediately available for activation across multiple platforms "
-                        "and provides good coverage at a competitive CPM rate."
+                    
+                    # Call business logic with original query
+                    response = main.get_signals.fn(
+                        signal_spec=internal_request.signal_spec,
+                        deliver_to=internal_request.deliver_to,
+                        filters=internal_request.filters,
+                        max_results=internal_request.max_results,
+                        principal_id=internal_request.principal_id
                     )
-                }]
-                
-                status_message = {
-                    "kind": "message",
-                    "message_id": f"msg_{datetime.now().timestamp()}",
-                    "parts": parts,
-                    "role": "agent"
-                }
-                
-                task_response = {
-                    "id": task_id,
-                    "kind": "task",
-                    "contextId": context_id,
-                    "status": {
-                        "state": "completed",
-                        "timestamp": datetime.now().isoformat(),
-                        "message": status_message
-                    },
-                    "metadata": {
-                        "response_type": "signal_details"
+                    
+                    # Check what specific information the user is asking about
+                    if "custom" in query_lower:
+                        # Focus on custom segments
+                        text_response = f"Based on your search for '{original_query}', here are the custom segment proposals:\n\n"
+                        if response.custom_segment_proposals:
+                            for i, proposal in enumerate(response.custom_segment_proposals, 1):
+                                text_response += f"**{i}. {proposal.name}**\n"
+                                text_response += f"• Coverage: {proposal.estimated_coverage_percentage:.1f}%\n"
+                                text_response += f"• CPM: ${proposal.estimated_cpm:.2f}\n"
+                                text_response += f"• Rationale: {proposal.rationale}\n"
+                                text_response += f"• ID: {proposal.custom_segment_id}\n\n"
+                        else:
+                            text_response += "No custom segments were proposed for this search."
+                    else:
+                        # Provide detailed information about the signals found
+                        text_response = f"Here are more details about the signals found for '{original_query}':\n\n"
+                        if response.signals:
+                            for signal in response.signals[:3]:  # Detail top 3 signals
+                                text_response += f"**{signal.name}**\n"
+                                text_response += f"• Coverage: {signal.coverage_percentage:.1f}% of addressable market\n" if signal.coverage_percentage else "• Coverage: Not available\n"
+                                text_response += f"• CPM: ${signal.pricing.cpm:.2f}\n" if signal.pricing.cpm else "• CPM: Pricing varies\n"
+                                text_response += f"• Data Provider: {signal.data_provider}\n"
+                                text_response += f"• Description: {signal.description}\n"
+                                
+                                # List deployments
+                                if signal.deployments:
+                                    live_deployments = [d for d in signal.deployments if d.is_live]
+                                    if live_deployments:
+                                        platforms = ", ".join([d.platform for d in live_deployments])
+                                        text_response += f"• Available on: {platforms}\n"
+                                    else:
+                                        text_response += "• Requires activation\n"
+                                
+                                text_response += f"• Signal ID: {signal.signals_agent_segment_id}\n\n"
+                        else:
+                            text_response = f"No signals were found for '{original_query}'."
+                        
+                        # Add info about custom segments if available
+                        if response.custom_segment_proposals:
+                            text_response += f"\nAdditionally, {len(response.custom_segment_proposals)} custom segment(s) can be created for better targeting."
+                    
+                    # Build response with contextual information
+                    parts = [{
+                        "kind": "text",
+                        "text": text_response
+                    }]
+                    
+                    # Also include the data part with full response
+                    parts.append({
+                        "kind": "data",
+                        "data": response.model_dump()
+                    })
+                    
+                    status_message = {
+                        "kind": "message",
+                        "message_id": f"msg_{datetime.now().timestamp()}",
+                        "parts": parts,
+                        "role": "agent"
                     }
-                }
-                
-                return task_response
+                    
+                    task_response = {
+                        "id": task_id,
+                        "kind": "task",
+                        "contextId": context_id,
+                        "status": {
+                            "state": "completed",
+                            "timestamp": datetime.now().isoformat(),
+                            "message": status_message
+                        },
+                        "metadata": {
+                            "response_type": "contextual_response",
+                            "original_query": original_query,
+                            "signal_count": len(response.signals)
+                        }
+                    }
+                    
+                    return task_response
+                else:
+                    # Context not found or expired, fall through to regular search
+                    logger.warning(f"Context {context_id} not found, performing new search")
             
             internal_request = GetSignalsRequest(
                 signal_spec=query,
