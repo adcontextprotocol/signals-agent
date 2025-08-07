@@ -63,8 +63,8 @@ def generate_contextual_response(
     if custom_proposals:
         for proposal in custom_proposals[:3]:  # Limit to top 3
             custom_summaries.append({
-                "name": proposal.get("name"),
-                "rationale": proposal.get("rationale"),
+                "name": proposal.get("name") or proposal.get("proposed_name"),
+                "rationale": proposal.get("rationale") or proposal.get("creation_rationale"),
                 "estimated_coverage": proposal.get("estimated_coverage_percentage"),
                 "estimated_cpm": proposal.get("estimated_cpm"),
                 "id": proposal.get("custom_segment_id")
@@ -105,13 +105,21 @@ def generate_contextual_response(
             raise Exception("Gemini API key not configured")
     except Exception as e:
         # Fallback to a basic response if AI fails or is not configured
+        # Check if the query is specifically asking about custom segments
+        query_lower = follow_up_query.lower()
+        is_custom_query = "custom" in query_lower or "what are the" in query_lower
+        
         fallback = f"Based on your search for '{original_query}', "
         
-        if "custom" in follow_up_query.lower() and custom_summaries:
+        if is_custom_query and custom_summaries:
             fallback += f"I found {len(custom_summaries)} custom segment proposals that could be created. "
             fallback += "These are AI-generated audience combinations designed to better match your specific targeting needs. "
             for i, custom in enumerate(custom_summaries[:2], 1):
                 fallback += f"\n\n{i}. {custom['name']}: {custom['rationale']}"
+        elif is_custom_query and not custom_summaries:
+            fallback += "no custom segment proposals were generated for this search. "
+            fallback += "Custom segments are AI-generated audience combinations that can be created when your search matches multiple potential targeting strategies. "
+            fallback += "Try a broader search term to see custom segment proposals."
         else:
             fallback += f"I found {len(signal_summaries)} relevant signals. "
             if signal_summaries:
@@ -177,8 +185,12 @@ def analyze_query_intent(follow_up_query: str, context_id: str) -> Dict[str, Any
             "these" in query_lower,
             "those" in query_lower,
             "the signal" in query_lower,
+            "the custom" in query_lower,
             "explain" in query_lower,
-            "what about" in query_lower
+            "what about" in query_lower,
+            "what are the" in query_lower,
+            "show me the" in query_lower,
+            "list the" in query_lower
         ])
         
         focus_area = "general"

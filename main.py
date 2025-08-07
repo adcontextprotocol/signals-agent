@@ -41,7 +41,8 @@ def generate_context_id() -> str:
 
 
 def store_discovery_context(context_id: str, query: str, principal_id: Optional[str], 
-                          signal_ids: List[str], search_parameters: Dict[str, Any]) -> None:
+                          signal_ids: List[str], search_parameters: Dict[str, Any],
+                          custom_proposals: Optional[List[Dict[str, Any]]] = None) -> None:
     """Store discovery context in unified contexts table with 7-day expiration."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -53,7 +54,8 @@ def store_discovery_context(context_id: str, query: str, principal_id: Optional[
     metadata = {
         "query": query,
         "signal_ids": signal_ids,
-        "search_parameters": search_parameters
+        "search_parameters": search_parameters,
+        "custom_proposals": custom_proposals
     }
     
     cursor.execute("""
@@ -307,8 +309,45 @@ def generate_custom_segment_proposals(signal_spec: str, existing_segments: List[
         return proposals
         
     except Exception as e:
-        console.print(f"[yellow]Custom segment proposal generation failed ({e})[/yellow]")
-        return []
+        console.print(f"[yellow]Custom segment proposal generation failed ({e}), using fallback[/yellow]")
+        # Fallback: Generate basic proposals based on the query
+        fallback_proposals = []
+        
+        # Simple keyword-based proposal generation
+        query_lower = signal_spec.lower()
+        
+        # Proposal 1: High-intent variant
+        fallback_proposals.append({
+            "proposed_name": f"High-Intent {signal_spec.title()}",
+            "description": f"Users actively researching or shopping for {signal_spec}",
+            "target_signals": f"Purchase intent, comparison shopping, reviews for {signal_spec}",
+            "estimated_coverage_percentage": 8.5,
+            "estimated_cpm": 5.50,
+            "creation_rationale": f"Captures users with strong purchase intent for {signal_spec} through behavioral and contextual signals"
+        })
+        
+        # Proposal 2: Lifestyle variant
+        fallback_proposals.append({
+            "proposed_name": f"{signal_spec.title()} Lifestyle Enthusiasts",
+            "description": f"Users deeply engaged with {signal_spec} content and communities",
+            "target_signals": f"Content consumption, community engagement, lifestyle interests related to {signal_spec}",
+            "estimated_coverage_percentage": 12.0,
+            "estimated_cpm": 4.50,
+            "creation_rationale": f"Targets passionate {signal_spec} enthusiasts through content engagement patterns"
+        })
+        
+        # Proposal 3: Seasonal/Event variant (if applicable)
+        if any(word in query_lower for word in ['sports', 'holiday', 'season', 'summer', 'winter', 'spring', 'fall']):
+            fallback_proposals.append({
+                "proposed_name": f"Seasonal {signal_spec.title()} Audiences",
+                "description": f"Users interested in {signal_spec} during peak seasonal moments",
+                "target_signals": f"Seasonal trends, event-based interests, timely {signal_spec} content",
+                "estimated_coverage_percentage": 15.0,
+                "estimated_cpm": 4.00,
+                "creation_rationale": f"Leverages seasonal patterns and event-driven interest in {signal_spec}"
+            })
+        
+        return fallback_proposals[:3]  # Return up to 3 proposals
 
 
 # --- Application Setup ---
@@ -651,7 +690,9 @@ def get_signals(
         "max_results": max_results,
         "principal_id": principal_id
     }
-    store_discovery_context(context_id, signal_spec, principal_id, signal_ids, search_parameters)
+    # Include custom proposals in context
+    custom_proposals_dict = [proposal.model_dump() for proposal in custom_proposals] if custom_proposals else None
+    store_discovery_context(context_id, signal_spec, principal_id, signal_ids, search_parameters, custom_proposals_dict)
     
     # Generate human-readable message
     message = generate_discovery_message(signal_spec, signals, custom_proposals)

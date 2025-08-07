@@ -315,6 +315,7 @@ async def handle_a2a_task(request: Dict[str, Any]):
                     metadata = json_lib.loads(context_result['metadata'])
                     original_query = metadata.get('query', '')
                     signal_ids = metadata.get('signal_ids', [])
+                    stored_custom_proposals = metadata.get('custom_proposals', [])
                     
                     # Now perform a new search with the original query to get fresh data
                     # This ensures we have the latest information
@@ -337,7 +338,8 @@ async def handle_a2a_task(request: Dict[str, Any]):
                     
                     # Convert response objects to dictionaries for AI processing
                     signals_dict = [signal.model_dump() for signal in response.signals]
-                    custom_dict = [proposal.model_dump() for proposal in response.custom_segment_proposals] if response.custom_segment_proposals else None
+                    # Use stored custom proposals if the new search didn't return any
+                    custom_dict = [proposal.model_dump() for proposal in response.custom_segment_proposals] if response.custom_segment_proposals else stored_custom_proposals
                     
                     # Use AI to generate contextual response
                     text_response = generate_contextual_response(
