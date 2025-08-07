@@ -1,4 +1,11 @@
-"""AI-powered contextual response generation using Gemini."""
+"""AI-powered contextual response generation using Gemini.
+
+This module uses the Gemini API for intelligent response generation.
+The API key is loaded from (in order of priority):
+1. GEMINI_API_KEY environment variable (used in Fly.dev deployment)
+2. config.json file (for local development)
+3. Falls back to simpler responses if no key is available
+"""
 
 import json
 from typing import Dict, List, Optional, Any
@@ -6,9 +13,16 @@ import google.generativeai as genai
 from config_loader import load_config
 
 # Load config and initialize Gemini
+# The config_loader automatically checks environment variables first
 config = load_config()
-genai.configure(api_key=config.get("gemini_api_key", "your-api-key-here"))
-model = genai.GenerativeModel('gemini-2.0-flash-exp')
+api_key = config.get("gemini_api_key", "your-api-key-here")
+
+# Only configure Gemini if we have a valid API key
+if api_key and api_key != "your-api-key-here":
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+else:
+    model = None  # Will trigger fallback behavior
 
 
 def generate_contextual_response(
@@ -83,10 +97,14 @@ def generate_contextual_response(
     """
     
     try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        if model:
+            response = model.generate_content(prompt)
+            return response.text.strip()
+        else:
+            # No API key configured, use fallback
+            raise Exception("Gemini API key not configured")
     except Exception as e:
-        # Fallback to a basic response if AI fails
+        # Fallback to a basic response if AI fails or is not configured
         fallback = f"Based on your search for '{original_query}', "
         
         if "custom" in follow_up_query.lower() and custom_summaries:
@@ -140,11 +158,15 @@ def analyze_query_intent(follow_up_query: str, context_id: str) -> Dict[str, Any
     """
     
     try:
-        response = model.generate_content(prompt)
-        clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
-        return json.loads(clean_json)
+        if model:
+            response = model.generate_content(prompt)
+            clean_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+            return json.loads(clean_json)
+        else:
+            # No API key configured, use fallback
+            raise Exception("Gemini API key not configured")
     except Exception as e:
-        # Fallback to keyword-based detection
+        # Fallback to keyword-based detection when AI is unavailable
         query_lower = follow_up_query.lower()
         
         is_contextual = context_id and any([
