@@ -179,19 +179,40 @@ def analyze_query_intent(follow_up_query: str, context_id: str) -> Dict[str, Any
         # Fallback to keyword-based detection when AI is unavailable
         query_lower = follow_up_query.lower()
         
-        is_contextual = context_id and any([
-            "tell me" in query_lower,
-            "more about" in query_lower,
-            "these" in query_lower,
-            "those" in query_lower,
-            "the signal" in query_lower,
-            "the custom" in query_lower,
-            "explain" in query_lower,
-            "what about" in query_lower,
-            "what are the" in query_lower,
-            "show me the" in query_lower,
-            "list the" in query_lower
-        ])
+        # Be more aggressive about detecting contextual queries when we have a context_id
+        # Any question with a context_id that asks about audiences, segments, or uses question words
+        # should be considered contextual
+        is_contextual = context_id and (
+            any([
+                "tell me" in query_lower,
+                "more about" in query_lower,
+                "these" in query_lower,
+                "those" in query_lower,
+                "the signal" in query_lower,
+                "the audience" in query_lower,
+                "the custom" in query_lower,
+                "the segment" in query_lower,
+                "explain" in query_lower,
+                "what about" in query_lower,
+                "what are" in query_lower,
+                "what is" in query_lower,
+                "what's" in query_lower,
+                "how" in query_lower,
+                "why" in query_lower,
+                "who" in query_lower,
+                "when" in query_lower,
+                "where" in query_lower,
+                "show me" in query_lower,
+                "list" in query_lower,
+                "describe" in query_lower,
+                "details" in query_lower,
+                "information" in query_lower
+            ]) or
+            # Also consider it contextual if it mentions key terms and has a context
+            ("audience" in query_lower or "segment" in query_lower or "signal" in query_lower or 
+             "coverage" in query_lower or "cpm" in query_lower or "price" in query_lower or
+             "platform" in query_lower or "custom" in query_lower or "like" in query_lower)
+        )
         
         focus_area = "general"
         if "custom" in query_lower:
