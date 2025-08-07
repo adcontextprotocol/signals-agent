@@ -26,6 +26,7 @@ from schemas import (
 from database import init_db
 from config_loader import load_config
 from adapters.manager import AdapterManager
+from contextual_ai import generate_contextual_response, analyze_query_intent
 
 # Import the MCP tools
 import main
@@ -289,27 +290,11 @@ async def handle_a2a_task(request: Dict[str, Any]):
             # Support 'query' at root level or in parameters
             query = params.get("query", request.get("query", ""))
             
-            # Check if this is a contextual follow-up question
-            query_lower = query.lower()
-            
-            # Check for contextual queries that should use previous search results
-            is_contextual_query = context_id and any([
-                "tell me" in query_lower,
-                "more about" in query_lower,
-                "explain" in query_lower,
-                "describe" in query_lower,
-                "what about" in query_lower,
-                "details" in query_lower,
-                "information about" in query_lower,
-                "those" in query_lower,
-                "these" in query_lower,
-                "the signal" in query_lower,
-                "the audience" in query_lower,
-                "custom segment" in query_lower
-            ])
+            # Use AI to analyze query intent
+            intent_analysis = analyze_query_intent(query, context_id)
             
             # If this is a contextual query, retrieve and use previous context
-            if is_contextual_query:
+            if intent_analysis.get('is_contextual') and context_id:
                 # Try to retrieve the previous context from database
                 import sqlite3
                 conn = sqlite3.connect('signals_agent.db', timeout=30.0)
@@ -350,46 +335,17 @@ async def handle_a2a_task(request: Dict[str, Any]):
                         principal_id=internal_request.principal_id
                     )
                     
-                    # Check what specific information the user is asking about
-                    if "custom" in query_lower:
-                        # Focus on custom segments
-                        text_response = f"Based on your search for '{original_query}', here are the custom segment proposals:\n\n"
-                        if response.custom_segment_proposals:
-                            for i, proposal in enumerate(response.custom_segment_proposals, 1):
-                                text_response += f"**{i}. {proposal.name}**\n"
-                                text_response += f"• Coverage: {proposal.estimated_coverage_percentage:.1f}%\n"
-                                text_response += f"• CPM: ${proposal.estimated_cpm:.2f}\n"
-                                text_response += f"• Rationale: {proposal.rationale}\n"
-                                text_response += f"• ID: {proposal.custom_segment_id}\n\n"
-                        else:
-                            text_response += "No custom segments were proposed for this search."
-                    else:
-                        # Provide detailed information about the signals found
-                        text_response = f"Here are more details about the signals found for '{original_query}':\n\n"
-                        if response.signals:
-                            for signal in response.signals[:3]:  # Detail top 3 signals
-                                text_response += f"**{signal.name}**\n"
-                                text_response += f"• Coverage: {signal.coverage_percentage:.1f}% of addressable market\n" if signal.coverage_percentage else "• Coverage: Not available\n"
-                                text_response += f"• CPM: ${signal.pricing.cpm:.2f}\n" if signal.pricing.cpm else "• CPM: Pricing varies\n"
-                                text_response += f"• Data Provider: {signal.data_provider}\n"
-                                text_response += f"• Description: {signal.description}\n"
-                                
-                                # List deployments
-                                if signal.deployments:
-                                    live_deployments = [d for d in signal.deployments if d.is_live]
-                                    if live_deployments:
-                                        platforms = ", ".join([d.platform for d in live_deployments])
-                                        text_response += f"• Available on: {platforms}\n"
-                                    else:
-                                        text_response += "• Requires activation\n"
-                                
-                                text_response += f"• Signal ID: {signal.signals_agent_segment_id}\n\n"
-                        else:
-                            text_response = f"No signals were found for '{original_query}'."
-                        
-                        # Add info about custom segments if available
-                        if response.custom_segment_proposals:
-                            text_response += f"\nAdditionally, {len(response.custom_segment_proposals)} custom segment(s) can be created for better targeting."
+                    # Convert response objects to dictionaries for AI processing
+                    signals_dict = [signal.model_dump() for signal in response.signals]
+                    custom_dict = [proposal.model_dump() for proposal in response.custom_segment_proposals] if response.custom_segment_proposals else None
+                    
+                    # Use AI to generate contextual response
+                    text_response = generate_contextual_response(
+                        follow_up_query=query,
+                        original_query=original_query,
+                        signals=signals_dict,
+                        custom_proposals=custom_dict
+                    )
                     
                     # Build response with contextual information
                     parts = [{
@@ -422,15 +378,18 @@ async def handle_a2a_task(request: Dict[str, Any]):
                         "metadata": {
                             "response_type": "contextual_response",
                             "original_query": original_query,
-                            "signal_count": len(response.signals)
+                            "signal_count": len(response.signals),
+                            "focus_area": intent_analysis.get('focus_area', 'general'),
+                            "ai_reasoning": intent_analysis.get('reasoning', '')
                         }
                     }
                     
                     return task_response
                 else:
                     # Context not found or expired, fall through to regular search
-                    logger.warning(f"Context {context_id} not found, performing new search")
+                    logger.warning(f"Context {context_id} not found or query not contextual, performing new search")
             
+            # Not a contextual query or no context found - perform regular search
             internal_request = GetSignalsRequest(
                 signal_spec=query,
                 deliver_to=params.get("deliver_to", {"platforms": "all", "countries": ["US"]}),
