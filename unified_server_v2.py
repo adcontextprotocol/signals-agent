@@ -402,9 +402,7 @@ async def get_agent_card(request: Request):
             "streaming": True,
             "pushNotifications": False,
             "stateTransitionHistory": False,
-            "extensions": {
-                "streaming_endpoint": f"{base_url}/a2a/task/stream"
-            }
+            "extensions": []
         },
         "skills": [{
             "id": "discover",
