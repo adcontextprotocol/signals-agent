@@ -2,6 +2,7 @@
 """Unified HTTP server supporting both MCP and A2A protocols."""
 
 import asyncio
+import json
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -86,6 +87,8 @@ async def root():
 @app.post("/")
 async def handle_a2a_root_task(request: Dict[str, Any]):
     """Handle A2A task requests at root endpoint (A2A standard)."""
+    logger.info(f"Root endpoint received request: {json.dumps(request, indent=2)}")
+    
     # Check if this is a JSON-RPC message from A2A Inspector
     if "jsonrpc" in request and request.get("method") == "message/send":
         # Extract the actual message from JSON-RPC format
@@ -93,12 +96,17 @@ async def handle_a2a_root_task(request: Dict[str, Any]):
         message = params.get("message", {})
         message_parts = message.get("parts", [])
         
+        logger.info(f"JSON-RPC message/send request - params: {json.dumps(params, indent=2)}")
+        logger.info(f"Context ID from params: {params.get('contextId')}")
+        
         # Extract text from message parts
         query = ""
         for part in message_parts:
             if part.get("kind") == "text":
                 query = part.get("text", "")
                 break
+        
+        logger.info(f"Extracted query: '{query}'")
         
         # Convert to our expected task format
         # Assume it's a discovery task since that's the most common
@@ -110,6 +118,8 @@ async def handle_a2a_root_task(request: Dict[str, Any]):
                 "query": query
             }
         }
+        
+        logger.info(f"Converted task request: {json.dumps(task_request, indent=2)}")
         
         # Process the task
         task_result = await handle_a2a_task(task_request)
@@ -272,10 +282,14 @@ async def get_agent_card(request: Request):
 @app.post("/a2a/task")
 async def handle_a2a_task(request: Dict[str, Any]):
     """Handle A2A task requests following the official spec."""
+    logger.info(f"A2A Task endpoint received request: {json.dumps(request, indent=2)}")
+    
     # Extract task metadata
     task_id = request.get("taskId") or f"task_{datetime.now().timestamp()}"
     task_type = request.get("type")
     context_id = request.get("contextId")
+    
+    logger.info(f"Task metadata - ID: {task_id}, Type: {task_type}, Context ID: {context_id}")
     
     # Handle both standard A2A format (with parameters) and simplified format
     if "parameters" in request:
@@ -283,6 +297,8 @@ async def handle_a2a_task(request: Dict[str, Any]):
     else:
         # For simplified format, treat the whole request as parameters
         params = {k: v for k, v in request.items() if k not in ["taskId", "type", "contextId"]}
+        
+    logger.info(f"Extracted parameters: {json.dumps(params, indent=2)}")
     
     try:
         if task_type == "discovery":
@@ -292,9 +308,11 @@ async def handle_a2a_task(request: Dict[str, Any]):
             
             # Use AI to analyze query intent
             intent_analysis = analyze_query_intent(query, context_id)
+            logger.info(f"Intent analysis result: {json.dumps(intent_analysis, indent=2)}")
             
             # If this is a contextual query, retrieve and use previous context
             if intent_analysis.get('is_contextual') and context_id:
+                logger.info(f"Processing as contextual query with context_id: {context_id}")
                 # Try to retrieve the previous context from database
                 import sqlite3
                 conn = sqlite3.connect('signals_agent.db', timeout=30.0)
@@ -308,6 +326,8 @@ async def handle_a2a_task(request: Dict[str, Any]):
                 
                 context_result = cursor.fetchone()
                 conn.close()
+                
+                logger.info(f"Database lookup result for context {context_id}: {'Found' if context_result else 'Not found'}")
                 
                 if context_result:
                     # Parse the stored metadata
@@ -327,13 +347,14 @@ async def handle_a2a_task(request: Dict[str, Any]):
                         principal_id=params.get("principal_id")
                     )
                     
-                    # Call business logic with original query
+                    # Call business logic with original query, preserving context_id
                     response = main.get_signals.fn(
                         signal_spec=internal_request.signal_spec,
                         deliver_to=internal_request.deliver_to,
                         filters=internal_request.filters,
                         max_results=internal_request.max_results,
-                        principal_id=internal_request.principal_id
+                        principal_id=internal_request.principal_id,
+                        context_id=context_id  # Pass the existing context_id to preserve it
                     )
                     
                     # Convert response objects to dictionaries for AI processing
@@ -389,9 +410,10 @@ async def handle_a2a_task(request: Dict[str, Any]):
                     return task_response
                 else:
                     # Context not found or expired, fall through to regular search
-                    logger.warning(f"Context {context_id} not found or query not contextual, performing new search")
+                    logger.warning(f"Context {context_id} not found, falling back to regular search")
             
-            # Not a contextual query or no context found - perform regular search
+            # Not a contextual query or no context found - perform regular search  
+            logger.info(f"Performing regular search for query: '{query}'")
             internal_request = GetSignalsRequest(
                 signal_spec=query,
                 deliver_to=params.get("deliver_to", {"platforms": "all", "countries": ["US"]}),
@@ -401,12 +423,14 @@ async def handle_a2a_task(request: Dict[str, Any]):
             )
             
             # Call business logic
+            # Pass context_id if provided (for non-contextual queries that still want to maintain conversation)
             response = main.get_signals.fn(
                 signal_spec=internal_request.signal_spec,
                 deliver_to=internal_request.deliver_to,
                 filters=internal_request.filters,
                 max_results=internal_request.max_results,
-                principal_id=internal_request.principal_id
+                principal_id=internal_request.principal_id,
+                context_id=context_id  # Pass context_id if available
             )
             
             # Build A2A SDK-compliant response

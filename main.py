@@ -58,8 +58,9 @@ def store_discovery_context(context_id: str, query: str, principal_id: Optional[
         "custom_proposals": custom_proposals
     }
     
+    # Use INSERT OR REPLACE to handle existing contexts (for contextual queries that reuse context_id)
     cursor.execute("""
-        INSERT INTO contexts 
+        INSERT OR REPLACE INTO contexts 
         (context_id, context_type, parent_context_id, principal_id, metadata, created_at, expires_at)
         VALUES (?, 'discovery', NULL, ?, ?, ?, ?)
     """, (
@@ -439,7 +440,8 @@ def get_signals(
     deliver_to: DeliverySpecification,
     filters: Optional[SignalFilters] = None,
     max_results: Optional[int] = 10,
-    principal_id: Optional[str] = None
+    principal_id: Optional[str] = None,
+    context_id: Optional[str] = None
 ) -> GetSignalsResponse:
     """
     Discover relevant signals based on a marketing specification.
@@ -464,6 +466,9 @@ def get_signals(
         
         principal_id: Your account ID for accessing private catalogs and custom pricing
                       Examples: "acme_corp", "agency_123"
+        
+        context_id: Optional existing context ID to preserve for contextual queries.
+                   If provided, this context will be maintained instead of generating a new one.
     
     Returns:
         List of matching signals with deployment status, pricing, and AI-generated
@@ -678,8 +683,9 @@ def get_signals(
             )
             custom_proposals.append(proposal_with_id)
     
-    # Generate context ID
-    context_id = generate_context_id()
+    # Use provided context_id or generate new one
+    if not context_id:
+        context_id = generate_context_id()
     
     # Store discovery context
     signal_ids = [signal.signals_agent_segment_id for signal in signals]
