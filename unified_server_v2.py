@@ -310,6 +310,7 @@ async def get_agent_card(request: Request):
         }],
         "provider": {
             "name": "Conductor",
+            "organization": "Conductor",
             "url": "https://conductor.build"
         }
     }
