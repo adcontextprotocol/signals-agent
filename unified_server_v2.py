@@ -342,31 +342,17 @@ async def handle_mcp_options():
 
 
 @app.get("/mcp")
-async def handle_mcp_sse(request: Request):
-    """Handle MCP SSE connections."""
-    import asyncio
-    import json
-    from uuid import uuid4
-    
+async def handle_mcp_sse_get(request: Request):
+    """Handle MCP GET requests for SSE."""
+    # For GET requests, return a simple SSE stream
     async def generate():
-        # MCP SSE transport expects bidirectional communication
-        # Client sends requests via POST to /mcp/messages
-        # Server sends responses via SSE
+        import json
+        import asyncio
         
-        session_id = str(uuid4())
+        # Send connection established
+        yield f"data: {json.dumps({'type': 'connected', 'message': 'MCP server ready'})}\n\n"
         
-        # Send initial ready event
-        yield f"event: open\ndata: {json.dumps({'session_id': session_id})}\n\n"
-        
-        # Send endpoint info
-        endpoint_data = {
-            "type": "endpoint",
-            "endpoint": f"{request.base_url}mcp/messages",
-            "session_id": session_id
-        }
-        yield f"data: {json.dumps(endpoint_data)}\n\n"
-        
-        # Keep connection alive
+        # Keep alive
         while True:
             await asyncio.sleep(30)
             yield f": keepalive\n\n"
@@ -379,8 +365,7 @@ async def handle_mcp_sse(request: Request):
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Credentials": "true",
-            "X-Accel-Buffering": "no",  # Disable proxy buffering
-            "X-SSE-Version": "1.0"
+            "X-Accel-Buffering": "no"  # Disable proxy buffering
         }
     )
 
@@ -395,7 +380,11 @@ async def handle_mcp_messages(request: Request):
 
 @app.post("/mcp")
 async def handle_mcp_request(request: Request):
-    """Handle MCP requests with AI."""
+    """Handle MCP requests with HTTP transport (JSON or SSE)."""
+    # Check Accept header for SSE
+    accept_header = request.headers.get("accept", "")
+    wants_sse = "text/event-stream" in accept_header
+    
     json_rpc = await request.json()
     method = json_rpc.get("method")
     params = json_rpc.get("params", {})
@@ -404,7 +393,7 @@ async def handle_mcp_request(request: Request):
     if method == "initialize":
         result = {
             "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "streaming": True},
             "serverInfo": {"name": "audience-agent-v2", "version": "2.0.0"}
         }
     elif method == "tools/list":
@@ -445,6 +434,29 @@ async def handle_mcp_request(request: Request):
     else:
         result = {"error": f"Unknown method: {method}"}
     
+    # Return SSE if requested
+    if wants_sse:
+        async def generate_sse():
+            import json
+            response_data = {
+                "jsonrpc": "2.0",
+                "result": result,
+                "id": request_id
+            }
+            yield f"data: {json.dumps(response_data)}\n\n"
+        
+        return StreamingResponse(
+            generate_sse(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    
+    # Return regular JSON
     return JSONResponse(
         content={
             "jsonrpc": "2.0",
