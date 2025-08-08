@@ -10,7 +10,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -128,6 +128,107 @@ def ai_generate_message(query: str, results: GetSignalsResponse, ai_intent: Dict
     
     response = model.generate_content(prompt)
     return response.text.strip()
+
+
+async def stream_ai_response(query: str, response: GetSignalsResponse, ai_intent: Dict[str, Any]):
+    """Stream AI response as Server-Sent Events."""
+    import json
+    import asyncio
+    
+    # Stream initial status
+    yield f"data: {json.dumps({'type': 'status', 'state': 'working', 'message': 'Processing your query...'})}\n\n"
+    await asyncio.sleep(0.1)
+    
+    # Stream AI intent
+    yield f"data: {json.dumps({'type': 'intent', 'data': ai_intent})}\n\n"
+    await asyncio.sleep(0.1)
+    
+    # Stream signals one by one
+    for i, signal in enumerate(response.signals[:5]):
+        signal_data = {
+            'type': 'signal',
+            'index': i + 1,
+            'total': len(response.signals),
+            'signal': {
+                'name': signal.name,
+                'id': signal.signal_id,
+                'coverage': signal.coverage_percentage,
+                'cpm': signal.pricing.cpm if hasattr(signal, 'pricing') and signal.pricing else None
+            }
+        }
+        yield f"data: {json.dumps(signal_data)}\n\n"
+        await asyncio.sleep(0.2)  # Small delay for streaming effect
+    
+    # Stream custom proposals
+    if response.custom_segment_proposals:
+        for i, proposal in enumerate(response.custom_segment_proposals[:3]):
+            proposal_data = {
+                'type': 'custom_proposal',
+                'index': i + 1,
+                'proposal': {
+                    'name': proposal.name,
+                    'rationale': proposal.rationale
+                }
+            }
+            yield f"data: {json.dumps(proposal_data)}\n\n"
+            await asyncio.sleep(0.2)
+    
+    # Stream final message
+    message_text = ai_generate_message(query, response, ai_intent)
+    yield f"data: {json.dumps({'type': 'message', 'text': message_text})}\n\n"
+    
+    # Stream completion
+    yield f"data: {json.dumps({'type': 'complete', 'state': 'completed'})}\n\n"
+
+
+@app.post("/a2a/task/stream")
+async def handle_a2a_task_stream(request: Dict[str, Any]):
+    """Handle A2A tasks with streaming response."""
+    # Extract query and context
+    context_id = request.get("contextId")
+    query = request.get("query", "")
+    
+    # Get conversation history
+    history = conversations.get(context_id, []) if context_id else []
+    
+    # Let AI process the query
+    ai_intent = ai_process_query(query, context_id, history)
+    
+    # Search based on AI's decision
+    search_query = ai_intent.get("search_query", query)
+    
+    # Perform search
+    response = main.get_signals.fn(
+        signal_spec=search_query,
+        deliver_to={"platforms": "all", "countries": ["US"]},
+        max_results=10,
+        context_id=context_id
+    )
+    
+    # Update context if needed
+    if not context_id and hasattr(response, 'context_id'):
+        context_id = response.context_id
+    
+    # Store in conversation history
+    if context_id:
+        if context_id not in conversations:
+            conversations[context_id] = []
+        conversations[context_id].append({
+            "query": query,
+            "search_query": search_query,
+            "results": len(response.signals)
+        })
+    
+    # Return streaming response
+    return StreamingResponse(
+        stream_ai_response(query, response, ai_intent),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Context-Id": context_id or ""
+        }
+    )
 
 
 @app.post("/")
@@ -298,9 +399,12 @@ async def get_agent_card(request: Request):
         "defaultInputModes": ["text"],
         "defaultOutputModes": ["text"],
         "capabilities": {
-            "streaming": False,
+            "streaming": True,
             "pushNotifications": False,
-            "stateTransitionHistory": False
+            "stateTransitionHistory": False,
+            "extensions": {
+                "streaming_endpoint": f"{base_url}/a2a/task/stream"
+            }
         },
         "skills": [{
             "id": "discover",
