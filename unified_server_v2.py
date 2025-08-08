@@ -334,11 +334,63 @@ async def handle_mcp_options():
         content={},
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Max-Age": "3600"
         }
     )
+
+
+@app.get("/mcp")
+async def handle_mcp_sse(request: Request):
+    """Handle MCP SSE connections."""
+    import asyncio
+    import json
+    from uuid import uuid4
+    
+    async def generate():
+        # MCP SSE transport expects bidirectional communication
+        # Client sends requests via POST to /mcp/messages
+        # Server sends responses via SSE
+        
+        session_id = str(uuid4())
+        
+        # Send initial ready event
+        yield f"event: open\ndata: {json.dumps({'session_id': session_id})}\n\n"
+        
+        # Send endpoint info
+        endpoint_data = {
+            "type": "endpoint",
+            "endpoint": f"{request.base_url}mcp/messages",
+            "session_id": session_id
+        }
+        yield f"data: {json.dumps(endpoint_data)}\n\n"
+        
+        # Keep connection alive
+        while True:
+            await asyncio.sleep(30)
+            yield f": keepalive\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "X-Accel-Buffering": "no",  # Disable proxy buffering
+            "X-SSE-Version": "1.0"
+        }
+    )
+
+
+@app.post("/mcp/messages")
+async def handle_mcp_messages(request: Request):
+    """Handle MCP messages sent via SSE transport."""
+    # This would handle messages from SSE clients
+    # For now, redirect to main MCP handler
+    return await handle_mcp_request(request)
 
 
 @app.post("/mcp")
