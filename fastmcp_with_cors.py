@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Ultra-simple MCP server with FastMCP HTTP transport."""
+"""FastMCP server with CORS support via FastAPI wrapper."""
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
+from fastmcp.server.asgi import MCPAsgiAdapter
+import uvicorn
 import main
 from database import init_db
 import os
@@ -9,7 +13,7 @@ import os
 # Initialize database
 init_db()
 
-# Create MCP server
+# Create FastMCP server
 mcp = FastMCP("Signals Agent")
 
 @mcp.tool()
@@ -34,13 +38,23 @@ def discover(query: str, max_results: int = 10) -> dict:
         "found": len(response.signals)
     }
 
+# Create FastAPI app
+app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
+
+# Mount MCP at /mcp
+mcp_adapter = MCPAsgiAdapter(mcp)
+app.mount("/mcp", mcp_adapter)
+
 if __name__ == "__main__":
-    # Use FastMCP's built-in HTTP transport with CORS
     port = int(os.environ.get("PORT", 8000))
-    mcp.run(
-        transport="streamable-http",
-        host="0.0.0.0",
-        port=port,
-        cors=True,  # Enable CORS
-        cors_origins=["*"]  # Allow all origins
-    )
+    uvicorn.run(app, host="0.0.0.0", port=port)

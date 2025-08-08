@@ -29,5 +29,5 @@ RUN python database.py
 # Expose port for unified server
 EXPOSE 8000
 
-# Run the simple MCP server with FastMCP's built-in HTTP transport
-CMD ["python", "mcp_http_server.py"]
+# Run the unified server supporting both MCP and A2A protocols  
+CMD ["uvicorn", "unified_server_v2:app", "--host", "0.0.0.0", "--port", "8000"]
