@@ -1,0 +1,13 @@
+#!/bin/bash
+# Pre-commit hook to run tests before committing
+# To install: cp .git-hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+echo "Running A2A compatibility tests..."
+python run_tests.py --a2a-only
+
+if [ $? -ne 0 ]; then
+    echo "❌ A2A compatibility tests failed. Please fix before committing."
+    exit 1
+fi
+
+echo "✅ All tests passed!"

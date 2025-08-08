@@ -1,0 +1,56 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install dependencies
+      run: |
+        uv pip install --system pytest requests pydantic google-generativeai fastapi uvicorn httpx
+        uv pip install --system -r requirements.txt || true
+    
+    - name: Run A2A Compatibility Tests
+      run: |
+        python run_tests.py --a2a-only -v
+      continue-on-error: true
+    
+    - name: Run AI Integration Tests
+      run: |
+        python run_tests.py --ai-only -v
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      continue-on-error: true
+    
+    - name: Run Configuration Tests
+      run: |
+        python run_tests.py --config-only -v
+    
+    - name: Run Full Test Suite
+      run: |
+        python run_tests.py -v
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    
+    - name: Test Report
+      if: always()
+      run: |
+        echo "Test suite completed. Check logs for details."

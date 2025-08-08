@@ -281,7 +281,10 @@ async def get_agent_card(request: Request):
         "name": "Signals Agent v2",
         "description": "AI-powered audience discovery",
         "version": "2.0.0",
+        "protocolVersion": "a2a/v1",
         "url": base_url,
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
         "capabilities": {
             "streaming": False,
             "pushNotifications": False,
@@ -290,8 +293,13 @@ async def get_agent_card(request: Request):
         "skills": [{
             "id": "discover",
             "name": "Discover Audiences",
-            "description": "Natural language audience discovery"
-        }]
+            "description": "Natural language audience discovery",
+            "tags": ["search", "discovery", "audience", "signals"]
+        }],
+        "provider": {
+            "name": "Conductor",
+            "url": "https://conductor.build"
+        }
     }
 
 
