@@ -61,7 +61,8 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 
@@ -326,6 +327,20 @@ async def handle_a2a_task(request: Dict[str, Any]):
     return response_data
 
 
+@app.options("/mcp")
+async def handle_mcp_options():
+    """Handle CORS preflight for MCP endpoint."""
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "3600"
+        }
+    )
+
+
 @app.post("/mcp")
 async def handle_mcp_request(request: Request):
     """Handle MCP requests with AI."""
@@ -378,11 +393,17 @@ async def handle_mcp_request(request: Request):
     else:
         result = {"error": f"Unknown method: {method}"}
     
-    return JSONResponse({
-        "jsonrpc": "2.0",
-        "result": result,
-        "id": request_id
-    })
+    return JSONResponse(
+        content={
+            "jsonrpc": "2.0",
+            "result": result,
+            "id": request_id
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true"
+        }
+    )
 
 
 @app.get("/agent-card")
