@@ -1,0 +1,42 @@
+#!/bin/bash
+# Pre-push hook to run tests before pushing
+# To install: cp .git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+echo "🧪 Running tests before push..."
+
+# Check if server is running
+if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
+    echo "⚠️  Server not running. Starting test server..."
+    python unified_server_v2.py > /dev/null 2>&1 &
+    SERVER_PID=$!
+    sleep 3
+    
+    # Check if server started
+    if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
+        echo "❌ Failed to start test server"
+        exit 1
+    fi
+    STARTED_SERVER=true
+else
+    STARTED_SERVER=false
+fi
+
+# Run A2A compatibility tests (most important)
+echo "Running A2A compatibility tests..."
+python run_tests.py --a2a-only
+
+TEST_RESULT=$?
+
+# Clean up server if we started it
+if [ "$STARTED_SERVER" = true ]; then
+    echo "Stopping test server..."
+    kill $SERVER_PID 2>/dev/null
+fi
+
+if [ $TEST_RESULT -ne 0 ]; then
+    echo "❌ Tests failed. Please fix before pushing."
+    echo "💡 Tip: Run 'python run_tests.py -v' for detailed output"
+    exit 1
+fi
+
+echo "✅ All tests passed! Proceeding with push..."
