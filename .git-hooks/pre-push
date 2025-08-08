@@ -6,8 +6,8 @@ echo "🧪 Running tests before push..."
 
 # Check if server is running
 if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
-    echo "⚠️  Server not running. Starting test server..."
-    python unified_server_v2.py > /dev/null 2>&1 &
+    echo "⚠️  Server not running. Starting test server with mocks..."
+    TEST_MODE=true python unified_server_v2.py > /dev/null 2>&1 &
     SERVER_PID=$!
     sleep 3
     
@@ -23,7 +23,7 @@ fi
 
 # Run A2A compatibility tests (most important)
 echo "Running A2A compatibility tests..."
-python run_tests.py --a2a-only
+TEST_MODE=true python run_tests.py --a2a-only
 
 TEST_RESULT=$?
 

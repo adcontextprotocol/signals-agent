@@ -24,11 +24,14 @@ def check_dependencies():
 
 def start_server():
     """Start the server in background for testing."""
-    print("Starting server for testing...")
+    print("Starting server for testing with mocked Gemini...")
+    env = os.environ.copy()
+    env["TEST_MODE"] = "true"
     server_process = subprocess.Popen(
         ["python", "unified_server_v2.py"],
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        stderr=subprocess.PIPE,
+        env=env
     )
     
     # Wait a moment for server to start

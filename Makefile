@@ -1,11 +1,12 @@
-.PHONY: test test-a2a test-all server install clean deploy setup-hooks
+.PHONY: test test-a2a test-all server test-server install clean deploy setup-hooks
 
 # Default target
 help:
 	@echo "Available targets:"
-	@echo "  make test        - Run A2A compatibility tests"
-	@echo "  make test-all    - Run all tests"
+	@echo "  make test        - Run A2A compatibility tests (with mocks)"
+	@echo "  make test-all    - Run all tests (with mocks)"
 	@echo "  make server      - Start the development server"
+	@echo "  make test-server - Start server with mocked Gemini"
 	@echo "  make install     - Install dependencies"
 	@echo "  make deploy      - Deploy to Fly.dev"
 	@echo "  make setup-hooks - Install git hooks"
@@ -17,17 +18,22 @@ install:
 
 # Run tests
 test:
-	@echo "Running A2A compatibility tests..."
-	uv run python run_tests.py --a2a-only -v
+	@echo "Running A2A compatibility tests with mocked Gemini..."
+	@TEST_MODE=true uv run python run_tests.py --a2a-only -v --with-server
 
 test-all:
-	@echo "Running all tests..."
-	uv run python run_tests.py -v --with-server
+	@echo "Running all tests with mocked Gemini..."
+	@TEST_MODE=true uv run python run_tests.py -v --with-server
 
 # Start server
 server:
 	@echo "Starting server on http://localhost:8000"
 	uv run python unified_server_v2.py
+
+# Start test server with mocks
+test-server:
+	@echo "Starting test server with mocked Gemini on http://localhost:8000"
+	@TEST_MODE=true uv run python unified_server_v2.py
 
 # Deploy to Fly.dev
 deploy:
