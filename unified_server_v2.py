@@ -309,9 +309,9 @@ async def get_agent_card(request: Request):
             "tags": ["search", "discovery", "audience", "signals"]
         }],
         "provider": {
-            "name": "Conductor",
-            "organization": "Conductor",
-            "url": "https://conductor.build"
+            "name": "Scope3",
+            "organization": "Scope3",
+            "url": "https://scope3.com"
         }
     }
 
