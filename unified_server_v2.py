@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import json
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -12,7 +13,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import google.generativeai as genai
 
 from schemas import GetSignalsRequest, GetSignalsResponse
 from database import init_db
@@ -22,9 +22,21 @@ import main
 
 logger = logging.getLogger(__name__)
 
+# Check if we're in test mode
+TEST_MODE = os.environ.get("TEST_MODE", "").lower() == "true"
+
+if TEST_MODE:
+    # Use mock for testing
+    from test_helpers import create_mock_genai_module
+    genai = create_mock_genai_module()
+    config = {"gemini_api_key": "test-key", "test_mode": True}
+else:
+    # Use real Gemini
+    import google.generativeai as genai
+    config = load_config()
+
 # Initialize Gemini
-config = load_config()
-genai.configure(api_key=config.get("gemini_api_key"))
+genai.configure(api_key=config.get("gemini_api_key", ""))
 model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
 # Simple conversation store

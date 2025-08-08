@@ -30,31 +30,37 @@ jobs:
     
     - name: Start test server
       run: |
-        python unified_server_v2.py &
+        TEST_MODE=true python unified_server_v2.py &
         sleep 5
         curl -f http://localhost:8000/health || exit 1
+      env:
+        TEST_MODE: true
     
     - name: Run A2A Compatibility Tests
       run: |
         python run_tests.py --a2a-only -v
-      continue-on-error: true
+      env:
+        TEST_MODE: true
+      continue-on-error: false
     
     - name: Run AI Integration Tests
       run: |
         python run_tests.py --ai-only -v
       env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        TEST_MODE: true
       continue-on-error: true
     
     - name: Run Configuration Tests
       run: |
         python run_tests.py --config-only -v
+      env:
+        TEST_MODE: true
     
     - name: Run Full Test Suite
       run: |
         python run_tests.py -v
       env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        TEST_MODE: true
     
     - name: Test Report
       if: always()
