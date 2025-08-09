@@ -1,5 +1,6 @@
 """Database initialization and sample data for the Signals Agent."""
 
+import os
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Any
@@ -7,7 +8,8 @@ from typing import List, Dict, Any
 
 def init_db():
     """Initialize the database with tables and sample data."""
-    conn = sqlite3.connect('signals_agent.db', timeout=30.0)
+    db_path = os.environ.get('DATABASE_PATH', 'signals_agent.db')
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     
     # Enable WAL mode for better concurrent access
@@ -113,6 +115,63 @@ def create_tables(cursor: sqlite3.Cursor):
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_contexts_parent 
         ON contexts (parent_context_id)
+    """)
+    
+    # LiveRamp marketplace segments table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS liveramp_segments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            segment_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            provider_name TEXT,
+            segment_type TEXT,
+            reach_count INTEGER,
+            has_pricing BOOLEAN,
+            cpm_price REAL,
+            categories TEXT,
+            raw_data TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Create FTS5 virtual table for full-text search
+    cursor.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS liveramp_segments_fts 
+        USING fts5(
+            segment_id UNINDEXED,
+            name,
+            description,
+            provider_name,
+            categories,
+            content=liveramp_segments,
+            content_rowid=id
+        ) 
+    """)
+    
+    # Create trigger to keep FTS in sync
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS liveramp_segments_ai 
+        AFTER INSERT ON liveramp_segments BEGIN
+            INSERT INTO liveramp_segments_fts(
+                rowid, segment_id, name, description, provider_name, categories
+            ) VALUES (
+                new.id, new.segment_id, new.name, new.description, 
+                new.provider_name, new.categories
+            );
+        END;
+    """)
+    
+    # LiveRamp sync status table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS liveramp_sync_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sync_started TIMESTAMP,
+            sync_completed TIMESTAMP,
+            total_segments INTEGER,
+            status TEXT,
+            error_message TEXT
+        )
     """)
     
 

@@ -95,6 +95,42 @@ uv run python client.py --prompt "luxury" --principal acme_corp
 uv run python client.py --prompt "automotive" --limit 10
 ```
 
+## LiveRamp Integration
+
+### Overview
+The LiveRamp adapter provides access to the full LiveRamp Data Marketplace catalog with over 200,000 segments. It uses an offline sync approach for optimal performance.
+
+### Key Features
+- **Full Catalog Sync**: Downloads entire LiveRamp catalog to local SQLite database
+- **Offline Search**: Uses SQLite FTS5 for fast, intelligent full-text search
+- **Scheduled Updates**: Fly.io scheduled machines for daily catalog updates
+- **Batch Processing**: Memory-efficient processing of large datasets
+- **Secure Credentials**: Environment variable-based credential management
+
+### Configuration
+```json
+"liveramp": {
+    "enabled": true,
+    "base_url": "https://api.liveramp.com",
+    "client_id": "your-client-id",
+    "account_id": "your-service-account",
+    "secret_key": "your-secret-key",
+    "token_uri": "your-token-uri",
+    "owner_org": "your-owner-org"
+}
+```
+
+### Sync Process
+1. Run manual sync: `uv run python sync_liveramp_catalog.py --full`
+2. Scheduled sync: Configured in Fly.io to run daily
+3. Database location: `/data/signals_agent.db` (Fly.io) or `signals_agent.db` (local)
+
+### Important Notes
+- The adapter ALWAYS uses the local cache - no automatic API calls
+- Sync is handled separately by the scheduled job
+- Full catalog is available without pagination limits
+- FTS5 queries are sanitized to prevent injection
+
 ## Platform Adapter Architecture
 
 ### Overview

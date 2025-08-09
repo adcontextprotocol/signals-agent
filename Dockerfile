@@ -23,12 +23,24 @@ RUN cp config.json.sample config.json
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 
-# Initialize database
-RUN python database.py
+# Create directory for mounted volume
+RUN mkdir -p /data
+
+# Don't initialize database in build - it will be on mounted volume
 
 # Expose port for unified server
 EXPOSE 8000
 
-# Run the unified server supporting both MCP and A2A protocols
-# Use uvicorn directly for better production performance
+# Create an entrypoint script to handle database initialization
+RUN echo '#!/bin/bash\n\
+if [ ! -f "/data/signals_agent.db" ]; then\n\
+    echo "Initializing database..."\n\
+    python database.py\n\
+fi\n\
+exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+# Use entrypoint to ensure database exists
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Default command runs the unified server
 CMD ["uvicorn", "unified_server:app", "--host", "0.0.0.0", "--port", "8000"]

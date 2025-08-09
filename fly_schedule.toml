@@ -1,0 +1,24 @@
+app = "audience-agent"
+primary_region = "fra"
+
+[build]
+  image = "registry.fly.io/audience-agent:deployment-01K24P5YDPASCSJKV029DS0KAF"
+
+[env]
+  DATABASE_PATH = "/data/signals_agent.db"
+
+[mounts]
+  source = "signals_data"
+  destination = "/data"
+
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[processes]
+  sync = "python /app/sync_liveramp_catalog.py --full"
+
+[deploy]
+  strategy = "immediate"
+EOF < /dev/null

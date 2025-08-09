@@ -17,10 +17,12 @@ fly auth login
 ## Initial Setup
 
 The fly.toml file has already been created. Review the configuration:
-- App name: `audience-agent`
-- Region: `fra` (Frankfurt)
+- App name: `signals-agent` (or your chosen name)
+- Region: `fra` (Frankfurt) or your preferred region
 - Memory: 1GB
 - Auto-stop enabled to save costs
+
+**Important**: The `config.json` file is already in `.gitignore` to prevent credential exposure.
 
 ## Configuration and Secrets
 
@@ -35,36 +37,31 @@ fly secrets set GEMINI_API_KEY="your-gemini-api-key-here"
 ```bash
 fly secrets set IX_USERNAME="your-ix-username"
 fly secrets set IX_PASSWORD="your-ix-password"
+fly secrets set IX_ACCOUNT_MAPPING='{"acme_corp": "account-id-1"}'
 ```
 
-3. Set LiveRamp credentials (if using):
+3. Set LiveRamp credentials:
 ```bash
+# LiveRamp Service Account credentials
 fly secrets set LIVERAMP_CLIENT_ID="your-liveramp-client-id"
-fly secrets set LIVERAMP_CLIENT_SECRET="your-liveramp-client-secret"
+fly secrets set LIVERAMP_ACCOUNT_ID="your-liveramp-service-account"
+fly secrets set LIVERAMP_SECRET_KEY="your-liveramp-secret-key"
+fly secrets set LIVERAMP_UID="your-liveramp-uid"
+fly secrets set LIVERAMP_OWNER_ORG="your-liveramp-owner-org"
+fly secrets set LIVERAMP_TOKEN_URI="your-liveramp-token-uri"
+fly secrets set LIVERAMP_ACCOUNT_MAPPING='{"your_principal": "your-liveramp-account-id"}'
 ```
 
-3. Update the application to read from environment variables. Create a file `config_loader.py`:
-```python
-import os
-import json
-
-def load_config():
-    """Load config with environment variable overrides."""
-    with open('config.json', 'r') as f:
-        config = json.load(f)
-    
-    # Override with environment variables if present
-    if gemini_key := os.environ.get('GEMINI_API_KEY'):
-        config['gemini_api_key'] = gemini_key
-    
-    if ix_username := os.environ.get('IX_USERNAME'):
-        config['platforms']['index-exchange']['username'] = ix_username
-    
-    if ix_password := os.environ.get('IX_PASSWORD'):
-        config['platforms']['index-exchange']['password'] = ix_password
-    
-    return config
+**Alternative: Use the provided script**
+```bash
+./fly-secrets-setup.sh
 ```
+
+The application already includes `config_loader.py` which automatically reads from environment variables. This supports:
+- `GEMINI_API_KEY`
+- `IX_USERNAME`, `IX_PASSWORD`, `IX_ACCOUNT_MAPPING`
+- `LIVERAMP_CLIENT_ID`, `LIVERAMP_ACCOUNT_ID`, `LIVERAMP_SECRET_KEY`, etc.
+- `DATABASE_PATH` for persistent storage
 
 ### Option 2: Build-time Configuration
 
@@ -240,9 +237,20 @@ fly logs
 fly secrets list
 ```
 
-3. **Database issues**: The SQLite database is ephemeral. For production, consider:
-   - Using Fly Volumes for persistence
-   - Migrating to PostgreSQL
+3. **LiveRamp API issues**: 
+   - Check authentication: `fly logs | grep -i auth`
+   - Verify credentials: `fly secrets list`
+   - Note: LiveRamp marketplace endpoints are still being determined
+
+4. **Database persistence**: 
+   - Create a volume: `fly volumes create signals_data --size 1`
+   - Mount in fly.toml:
+   ```toml
+   [mounts]
+     source = "signals_data"
+     destination = "/data"
+   ```
+   - Set DATABASE_PATH: `fly secrets set DATABASE_PATH="/data/signals_agent.db"`
 
 ## Cost Optimization
 

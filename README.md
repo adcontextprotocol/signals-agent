@@ -21,8 +21,8 @@ The Signals Agent provides:
 - **AI-Powered Discovery**: Uses Google Gemini to intelligently rank signals (audiences, bidding data, contextual signals) based on natural language queries
 - **Smart Match Explanations**: Each result includes AI-generated explanations of why the segment matches your targeting goals
 - **Custom Segment Proposals**: AI suggests new custom segments that could be created for better targeting
-- **Multi-Platform Support**: Discover signals across multiple SSPs (Index Exchange, The Trade Desk, OpenX, etc.)
-- **Live Platform Integration**: Real-time API integration with decisioning platforms (Index Exchange supported)
+- **Multi-Platform Support**: Discover signals across multiple SSPs (Index Exchange, The Trade Desk, LiveRamp, OpenX, etc.)
+- **Live Platform Integration**: Real-time API integration with decisioning platforms (Index Exchange and LiveRamp supported)
 - **Intelligent Caching**: 60-second API response caching for optimal performance
 - **Real-Time Activation**: On-demand signal deployment to decisioning platforms
 - **Transparent Pricing**: CPM and revenue share models with realistic market pricing
@@ -147,6 +147,7 @@ The system supports real-time integration with decisioning platform APIs:
 
 **Supported Platforms:**
 - **Index Exchange**: Live API integration with authentication and caching
+- **LiveRamp**: Full catalog sync with 200,000+ segments, offline search capability
 - **The Trade Desk**: Adapter framework ready (implementation pending)
 
 **Configuration:**

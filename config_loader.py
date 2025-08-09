@@ -13,6 +13,13 @@ def load_config() -> Dict[str, Any]:
     - IX_USERNAME: Overrides platforms.index-exchange.username
     - IX_PASSWORD: Overrides platforms.index-exchange.password
     - IX_ACCOUNT_MAPPING: JSON string for principal account mappings
+    - LIVERAMP_CLIENT_ID: Overrides platforms.liveramp.client_id
+    - LIVERAMP_ACCOUNT_ID: Overrides platforms.liveramp.account_id
+    - LIVERAMP_SECRET_KEY: Overrides platforms.liveramp.secret_key
+    - LIVERAMP_UID: Overrides platforms.liveramp.uid
+    - LIVERAMP_OWNER_ORG: Overrides platforms.liveramp.owner_org
+    - LIVERAMP_TOKEN_URI: Overrides platforms.liveramp.token_uri
+    - LIVERAMP_ACCOUNT_MAPPING: JSON string for principal account mappings
     """
     # Load base config
     try:
@@ -62,7 +69,12 @@ def load_config() -> Dict[str, Any]:
                 # Enable LiveRamp if credentials are provided
                 config['platforms']['liveramp']['enabled'] = True
             
+            if lr_account_id := os.environ.get('LIVERAMP_ACCOUNT_ID'):
+                config['platforms']['liveramp']['account_id'] = lr_account_id
+            
             if lr_secret_key := os.environ.get('LIVERAMP_SECRET_KEY'):
+                config['platforms']['liveramp']['secret_key'] = lr_secret_key
+                # Also set as client_secret for compatibility
                 config['platforms']['liveramp']['client_secret'] = lr_secret_key
             
             if lr_uid := os.environ.get('LIVERAMP_UID'):
