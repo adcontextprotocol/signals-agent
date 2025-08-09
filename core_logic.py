@@ -13,7 +13,7 @@ from typing import List, Optional, Dict, Any
 
 from schemas import (
     GetSignalsResponse,
-    SignalSegment,
+    SignalResponse,
     PricingModel,
     PlatformDeployment,
     DeliverySpecification,
@@ -37,6 +37,92 @@ def generate_context_id() -> str:
     timestamp = int(datetime.now().timestamp())
     random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
     return f"ctx_{timestamp}_{random_suffix}"
+
+
+def get_discovery_context(context_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve stored discovery context."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT metadata FROM contexts 
+        WHERE context_id = ? AND context_type = 'discovery'
+        AND datetime(expires_at) > datetime('now')
+    """, (context_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return json.loads(row['metadata'])
+    return None
+
+
+def get_signals_by_ids(signal_ids: List[str]) -> List[SignalResponse]:
+    """Get signals by their IDs."""
+    if not signal_ids:
+        return []
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    placeholders = ','.join(['?' for _ in signal_ids])
+    query = f"""
+        SELECT 
+            ss.id as segment_id,
+            ss.name,
+            ss.description,
+            ss.data_provider,
+            ss.coverage_percentage,
+            ss.signal_type,
+            ss.base_cpm,
+            ss.revenue_share_percentage
+        FROM signal_segments ss
+        WHERE ss.id IN ({placeholders})
+    """
+    
+    cursor.execute(query, signal_ids)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    signals = []
+    for row in rows:
+        # Create pricing object from database columns
+        pricing = None
+        if row['base_cpm']:
+            pricing = PricingModel(
+                cpm=row['base_cpm'],
+                minimum_spend=None,
+                currency='USD',
+                pricing_model='CPM'
+            )
+        
+        # Create deployment objects - assume available on all platforms
+        deployments = []
+        for platform in ["ttd", "dv360", "amazon", "index-exchange"]:
+            deployments.append(PlatformDeployment(
+                platform=platform,
+                account=None,
+                is_live=True,
+                scope="platform-wide",
+                decisioning_platform_segment_id=f"{platform}_{row['segment_id']}"
+            ))
+        
+        signal = SignalResponse(
+            signals_agent_segment_id=row['segment_id'],
+            name=row['name'],
+            description=row['description'],
+            signal_type=row['signal_type'] if row['signal_type'] else 'audience',
+            data_provider=row['data_provider'],
+            coverage_percentage=row['coverage_percentage'] if row['coverage_percentage'] else None,
+            deployments=deployments,
+            pricing=pricing,
+            has_coverage_data=row['coverage_percentage'] is not None,
+            has_pricing_data=pricing is not None
+        )
+        signals.append(signal)
+    
+    return signals
 
 
 def store_discovery_context(context_id: str, query: str, principal_id: Optional[str], 
@@ -151,18 +237,21 @@ def get_signals_core(
             for platform in platforms_list:
                 deployments.append(PlatformDeployment(
                     platform=platform,
-                    status='available'
+                    account=None,
+                    is_live=True,
+                    scope="platform-wide",
+                    decisioning_platform_segment_id=f"{platform}_{row['segment_id']}"
                 ))
         
-        signal = SignalSegment(
+        signal = SignalResponse(
             signals_agent_segment_id=row['segment_id'],
             name=row['name'],
             description=row['description'],
+            signal_type=row['signal_type'] if row['signal_type'] else 'audience',
             data_provider=row['data_provider'],
             coverage_percentage=row['coverage_percentage'] if row['coverage_percentage'] else None,
-            tags=[row['signal_type']] if row['signal_type'] else [],
-            pricing=pricing,
             deployments=deployments,
+            pricing=pricing,
             has_coverage_data=row['coverage_percentage'] is not None,
             has_pricing_data=pricing is not None
         )

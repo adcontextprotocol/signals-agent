@@ -77,28 +77,57 @@ def process_discovery_query(
     # Let AI process the query
     ai_intent = _ai_process_query(query, context_id, history)
     
-    # Use AI's refined search query
-    search_query = ai_intent.get("search_query", query)
-    
-    # Default delivery specification
-    if not deliver_to:
-        deliver_to = DeliverySpecification(platforms="all", countries=["US"])
-    
-    # Use core logic directly to avoid importing main with its module-level initialization
-    from core_logic import get_signals_core
-    
-    # Perform the actual search
-    response = get_signals_core(
-        signal_spec=search_query,
-        deliver_to=deliver_to,
-        filters=filters,
-        max_results=max_results,
-        principal_id=principal_id,
-        context_id=context_id
-    )
-    
-    # Generate AI message
-    message_text = _ai_generate_message(query, response, ai_intent)
+    # Check if this is a contextual query
+    if ai_intent.get("is_contextual", False) and context_id:
+        # This is a follow-up question about previous results
+        from core_logic import get_discovery_context, get_signals_by_ids
+        
+        # Get the previous context
+        prev_context = get_discovery_context(context_id)
+        
+        if prev_context and prev_context.get("signal_ids"):
+            # Retrieve the actual signals from the previous search
+            signals = get_signals_by_ids(prev_context["signal_ids"])
+            custom_proposals = prev_context.get("custom_proposals", [])
+            
+            # Create a response with the same signals but a contextual message
+            response = GetSignalsResponse(
+                message=f"Here are more details about the {len(signals)} signals from your previous search",
+                signals=signals,
+                custom_segment_proposals=[CustomSegmentProposal(**p) for p in custom_proposals] if custom_proposals else None,
+                context_id=context_id
+            )
+            
+            # Generate a contextual message that provides more details
+            message_text = _generate_contextual_message(query, signals, custom_proposals, ai_intent)
+        else:
+            # No previous context found, fall back to new search
+            ai_intent["is_contextual"] = False
+            
+    # If not contextual or no previous context, perform a new search
+    if not ai_intent.get("is_contextual", False):
+        # Use AI's refined search query
+        search_query = ai_intent.get("search_query", query)
+        
+        # Default delivery specification
+        if not deliver_to:
+            deliver_to = DeliverySpecification(platforms="all", countries=["US"])
+        
+        # Use core logic directly to avoid importing main with its module-level initialization
+        from core_logic import get_signals_core
+        
+        # Perform the actual search
+        response = get_signals_core(
+            signal_spec=search_query,
+            deliver_to=deliver_to,
+            filters=filters,
+            max_results=max_results,
+            principal_id=principal_id,
+            context_id=context_id
+        )
+        
+        # Generate AI message for new search results
+        message_text = _ai_generate_message(query, response, ai_intent)
     
     # Store in conversation history
     conversations[context_id] = history + [{
@@ -140,24 +169,93 @@ def process_activation(
 def _ai_process_query(query: str, context_id: str, history: List[Dict]) -> Dict[str, Any]:
     """Use AI to understand query intent."""
     
+    # Common contextual phrases
+    contextual_indicators = [
+        "tell me more", "more about", "details about", "explain",
+        "what about", "how about", "these", "those", "that", "this",
+        "the signal", "the segment", "the audience", "them"
+    ]
+    
+    # Quick check for obvious contextual queries
+    query_lower = query.lower()
+    likely_contextual = any(phrase in query_lower for phrase in contextual_indicators)
+    
     prompt = f"""
     Analyze this query and determine the user's intent.
     
     Query: {query}
-    Context ID: {context_id}
-    Previous conversation: {json.dumps(history[-3:]) if history else "None"}
+    Has conversation history: {len(history) > 0}
+    Likely contextual: {likely_contextual}
+    
+    Common contextual phrases found: {[p for p in contextual_indicators if p in query_lower]}
+    
+    Determine if this is:
+    1. A follow-up question about previous results (contextual)
+    2. A new search query (discovery)
+    3. A clarification request
     
     Return a JSON object with:
     {{
-        "is_contextual": boolean (is this a follow-up question?),
-        "search_query": "refined search terms if needed",
+        "is_contextual": boolean (true if asking about previous results),
+        "search_query": "refined search terms ONLY if new search",
         "intent": "discovery|contextual|clarification",
         "key_terms": ["list", "of", "key", "terms"]
     }}
+    
+    Be aggressive about marking queries as contextual if they reference previous results.
     """
     
     response = model.generate_content(prompt)
     return json.loads(response.text.strip().replace("```json", "").replace("```", ""))
+
+
+def _generate_contextual_message(query: str, signals: List, custom_proposals: List, ai_intent: Dict[str, Any]) -> str:
+    """Generate a contextual response about previous results."""
+    
+    # Build detailed signal information
+    signal_details = []
+    for s in signals:
+        detail = f"**{s.name}**: {s.description}"
+        if s.coverage_percentage:
+            detail += f" Coverage: {s.coverage_percentage}%."
+        if s.pricing and s.pricing.cpm:
+            detail += f" CPM: ${s.pricing.cpm}."
+        if s.deployments:
+            platforms = [d.platform for d in s.deployments]
+            detail += f" Available on: {', '.join(platforms)}."
+        signal_details.append(detail)
+    
+    # Build custom proposal details
+    custom_details = []
+    for p in custom_proposals:
+        if isinstance(p, dict):
+            custom_details.append(f"**{p.get('proposed_name', 'Custom')}**: {p.get('description', '')} - {p.get('creation_rationale', '')}")
+        else:
+            custom_details.append(f"**{p.proposed_name}**: {p.description} - {p.creation_rationale}")
+    
+    prompt = f"""
+    The user is asking a follow-up question about signals they previously searched for.
+    
+    Previous signals found:
+    {chr(10).join(signal_details[:3])}
+    
+    Custom segment proposals:
+    {chr(10).join(custom_details[:2]) if custom_details else "None"}
+    
+    User's follow-up question: {query}
+    
+    Provide a helpful response that:
+    - Directly answers their follow-up question
+    - Provides more details about the signals
+    - Mentions specific names, coverage, and pricing
+    - Is conversational and helpful
+    - Is 2-3 sentences max
+    
+    Return only the text, no formatting.
+    """
+    
+    response = model.generate_content(prompt)
+    return response.text.strip()
 
 
 def _ai_generate_message(query: str, results: GetSignalsResponse, ai_intent: Dict[str, Any]) -> str:
