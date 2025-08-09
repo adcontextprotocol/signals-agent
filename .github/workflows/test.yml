@@ -34,6 +34,13 @@ jobs:
       env:
         TEST_MODE: true
     
+    - name: Run Routing Tests
+      run: |
+        python test_routing.py http://localhost:8000
+      env:
+        TEST_MODE: true
+      continue-on-error: false
+    
     - name: Run A2A Compatibility Tests
       run: |
         python run_tests.py --a2a-only -v

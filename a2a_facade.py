@@ -4,7 +4,7 @@ This module implements the A2A (Agent-to-Agent) protocol using FastAPI,
 delegating business logic to the business_logic module.
 """
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -15,7 +15,7 @@ import asyncio
 import business_logic
 from schemas import DeliverySpecification
 
-app = FastAPI(title="A2A Protocol Facade")
+router = APIRouter()
 
 
 def get_agent_card(base_url: str) -> Dict[str, Any]:
@@ -48,9 +48,9 @@ def get_agent_card(base_url: str) -> Dict[str, Any]:
     }
 
 
-@app.get("/agent-card")
-@app.get("/.well-known/agent.json")
-@app.get("/.well-known/agent-card.json")
+@router.get("/agent-card")
+@router.get("/.well-known/agent.json")
+@router.get("/.well-known/agent-card.json")
 async def agent_card_endpoint(request: Request):
     """Return the A2A agent card."""
     # Use the proper base URL based on deployment
@@ -65,7 +65,7 @@ async def agent_card_endpoint(request: Request):
     return get_agent_card(base_url)
 
 
-@app.post("/a2a/task")
+@router.post("/a2a/task")
 async def handle_task(request: Dict[str, Any]):
     """Handle A2A task requests."""
     
@@ -149,7 +149,7 @@ async def handle_task(request: Dict[str, Any]):
         }
 
 
-@app.post("/a2a/task/stream")
+@router.post("/a2a/task/stream")
 async def handle_task_stream(request: Dict[str, Any]):
     """Handle streaming A2A task requests."""
     
@@ -210,8 +210,11 @@ async def _handle_json_rpc_request(request: Dict[str, Any]):
         # Extract message
         message = params.get("message", {})
         query = ""
-        for part in message.get("parts", []):
-            if part.get("kind") == "text":
+        # Handle both direct parts and content.parts formats
+        content = message.get("content", {})
+        parts = content.get("parts", []) if content else message.get("parts", [])
+        for part in parts:
+            if part.get("type") == "text" or part.get("kind") == "text":
                 query = part.get("text", "")
                 break
         
@@ -250,13 +253,13 @@ async def _handle_json_rpc_request(request: Dict[str, Any]):
     )
 
 
-@app.post("/a2a/jsonrpc")
+@router.post("/a2a/jsonrpc")
 async def handle_json_rpc(request: Dict[str, Any]):
     """Handle JSON-RPC message/send requests at dedicated endpoint."""
     return await _handle_json_rpc_request(request)
 
 
-@app.post("/")
+@router.post("/")
 async def handle_json_rpc_root(request: Dict[str, Any]):
     """Handle JSON-RPC message/send requests at root for compatibility."""
     return await _handle_json_rpc_request(request)

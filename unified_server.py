@@ -10,9 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-# Import the protocol facades
-from a2a_facade import app as a2a_app
-from mcp_facade import app as mcp_app
+# Import the protocol routers
+from a2a_facade import router as a2a_router
+from mcp_facade import router as mcp_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -60,14 +60,10 @@ async def root():
         }
     }
 
-# Mount the A2A routes directly onto the main app
-# Note: We mount the routes, not as a sub-application
-for route in a2a_app.routes:
-    app.routes.append(route)
-
-# Mount the MCP routes directly onto the main app
-for route in mcp_app.routes:
-    app.routes.append(route)
+# Include the protocol routers
+# This properly registers all routes with their metadata
+app.include_router(a2a_router)
+app.include_router(mcp_router)
 
 if __name__ == "__main__":
     import uvicorn

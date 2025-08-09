@@ -4,7 +4,7 @@ This module implements the MCP (Model Context Protocol) using FastAPI,
 delegating business logic to the business_logic module.
 """
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from typing import Dict, Any
 import logging
@@ -12,11 +12,11 @@ import logging
 import business_logic
 from schemas import DeliverySpecification, SignalFilters
 
-app = FastAPI(title="MCP Protocol Facade")
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@app.options("/mcp")
+@router.options("/mcp")
 async def handle_mcp_options():
     """Handle CORS preflight for MCP endpoint."""
     return JSONResponse(
@@ -30,7 +30,7 @@ async def handle_mcp_options():
     )
 
 
-@app.post("/mcp")
+@router.post("/mcp")
 async def handle_mcp_request(request: Dict[str, Any]):
     """Handle MCP JSON-RPC requests."""
     
