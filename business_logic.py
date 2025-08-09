@@ -84,11 +84,11 @@ def process_discovery_query(
     if not deliver_to:
         deliver_to = DeliverySpecification(platforms="all", countries=["US"])
     
-    # Import main here to avoid module-level execution during import
-    import main
+    # Use core logic directly to avoid importing main with its module-level initialization
+    from core_logic import get_signals_core
     
     # Perform the actual search
-    response = main.get_signals.fn(
+    response = get_signals_core(
         signal_spec=search_query,
         deliver_to=deliver_to,
         filters=filters,
@@ -125,10 +125,10 @@ def process_activation(
 ) -> ActivateSignalResponse:
     """Process a signal activation request."""
     
-    # Import main here to avoid module-level execution during import
-    import main
+    # Use core logic directly to avoid importing main with its module-level initialization
+    from core_logic import activate_signal_core
     
-    return main.activate_signal.fn(
+    return activate_signal_core(
         signals_agent_segment_id=segment_id,
         platform=platform,
         account=account,
