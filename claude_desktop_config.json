@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "signals-agent": {
+      "command": "node",
+      "args": [
+        "/path/to/mcp-client-proxy.js",
+        "https://audience-agent.fly.dev/mcp"
+      ],
+      "env": {}
+    },
+    "signals-agent-http": {
+      "url": "https://audience-agent.fly.dev/mcp",
+      "transport": "http"
+    }
+  }
+}

@@ -1,8 +1,6 @@
 name: Test Suite
 
 on:
-  push:
-    branches: [ main, develop, feature/* ]
   pull_request:
     branches: [ main ]
 
@@ -30,7 +28,7 @@ jobs:
     
     - name: Start test server
       run: |
-        TEST_MODE=true python unified_server_v2.py &
+        TEST_MODE=true python unified_server.py &
         sleep 5
         curl -f http://localhost:8000/health || exit 1
       env:

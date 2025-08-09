@@ -26,7 +26,7 @@ class AgentCardSchema(BaseModel):
 class TestA2ACompatibility:
     """Test suite for A2A protocol compliance."""
     
-    BASE_URL = "http://localhost:8000"
+    BASE_URL = "https://audience-agent.fly.dev"
     
     @classmethod
     def setup_class(cls):
