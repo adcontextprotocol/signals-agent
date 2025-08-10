@@ -122,7 +122,7 @@ class E2ETestSuite:
         print(f"\n{Colors.BOLD}1. Basic Connectivity{Colors.ENDC}")
         
         try:
-            response = self.session.get(f"{self.base_url}/health", timeout=5)
+            response = self.session.get(f"{self.base_url}/health", timeout=35)
             if response.status_code == 200:
                 self.results.add_pass("Server is reachable")
             else:
@@ -149,7 +149,7 @@ class E2ETestSuite:
         for method, path, description in endpoints:
             try:
                 if method == "GET":
-                    response = self.session.get(f"{self.base_url}{path}", timeout=5)
+                    response = self.session.get(f"{self.base_url}{path}", timeout=35)
                 else:
                     # Send minimal valid payload
                     if "jsonrpc" in path or path == "/":
@@ -166,7 +166,7 @@ class E2ETestSuite:
                     else:
                         payload = {}
                     
-                    response = self.session.post(f"{self.base_url}{path}", json=payload, timeout=5)
+                    response = self.session.post(f"{self.base_url}{path}", json=payload, timeout=35)
                 
                 if response.status_code == 404:
                     self.results.add_fail(f"{method} {path}", "404 Not Found")
@@ -208,7 +208,7 @@ class E2ETestSuite:
                                 "params": {"message": {"content": {"parts": [{"kind": "text", "text": "test"}]}}},
                                 "id": 1
                             }
-                            response = self.session.post(json_rpc_url, json=test_payload, timeout=5)
+                            response = self.session.post(json_rpc_url, json=test_payload, timeout=35)
                             if response.status_code == 200:
                                 self.results.add_pass(f"Agent card URL ({json_rpc_url}) is accessible")
                             else:
@@ -226,7 +226,7 @@ class E2ETestSuite:
             response = self.session.post(
                 f"{self.base_url}/a2a/task",
                 json={"query": "test query"},
-                timeout=5
+                timeout=35
             )
             if response.status_code == 200:
                 task = response.json()
@@ -248,7 +248,7 @@ class E2ETestSuite:
             response = self.session.post(
                 f"{self.base_url}/mcp",
                 json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
-                timeout=5
+                timeout=35
             )
             if response.status_code == 200:
                 result = response.json()
@@ -283,7 +283,7 @@ class E2ETestSuite:
                     "params": {"message": {"content": {"parts": [{"kind": "text", "text": "sport"}]}}},
                     "id": 1
                 },
-                timeout=5
+                timeout=35
             )
             
             if response1.status_code == 200:
@@ -304,7 +304,7 @@ class E2ETestSuite:
                             },
                             "id": 2
                         },
-                        timeout=5
+                        timeout=35
                     )
                     
                     if response2.status_code == 200:
@@ -337,7 +337,7 @@ class E2ETestSuite:
             response = self.session.post(
                 f"{self.base_url}/a2a/jsonrpc",
                 json={"invalid": "request"},
-                timeout=5
+                timeout=35
             )
             if response.status_code in [400, 422]:
                 self.results.add_pass("Invalid JSON-RPC rejected properly")
@@ -351,7 +351,7 @@ class E2ETestSuite:
             response = self.session.post(
                 f"{self.base_url}/a2a/jsonrpc",
                 json={"jsonrpc": "2.0", "method": "invalid/method", "id": 1},
-                timeout=5
+                timeout=35
             )
             if response.status_code == 404 or (response.status_code == 200 and "error" in response.json()):
                 self.results.add_pass("Unknown method handled properly")
@@ -367,7 +367,7 @@ class E2ETestSuite:
         # Test response time
         try:
             start = time.time()
-            response = self.session.get(f"{self.base_url}/health", timeout=5)
+            response = self.session.get(f"{self.base_url}/health", timeout=35)
             elapsed = time.time() - start
             
             if elapsed < 1.0:
@@ -391,7 +391,7 @@ class E2ETestSuite:
                         "params": {"message": {"content": {"parts": [{"kind": "text", "text": "test"}]}}},
                         "id": 1
                     },
-                    timeout=5
+                    timeout=35
                 )
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:

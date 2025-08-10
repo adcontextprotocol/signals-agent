@@ -11,7 +11,7 @@ WORKDIR /app
 # Copy requirements and install Python dependencies
 COPY pyproject.toml ./
 RUN pip install uv
-RUN uv pip install --system fastmcp pydantic rich google-generativeai requests fastapi uvicorn
+RUN uv pip install --system fastmcp pydantic rich google-generativeai requests fastapi uvicorn 'python-a2a[server]'
 
 # Copy application code
 COPY . .
@@ -29,5 +29,5 @@ RUN python database.py
 # Expose port for unified server
 EXPOSE 8000
 
-# Run the unified server supporting both MCP and A2A protocols  
-CMD ["uvicorn", "unified_server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the unified server using python-a2a  
+CMD ["python", "signals_agent_simple.py"]

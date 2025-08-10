@@ -194,11 +194,18 @@ def get_signals_core(
     
     params = []
     
-    # Add basic text search
+    # Add basic text search - make it more flexible by searching for individual words
     if signal_spec:
-        query += " AND (name LIKE ? OR description LIKE ?)"
-        search_term = f"%{signal_spec}%"
-        params.extend([search_term, search_term])
+        # Split the search term into words and search for any of them
+        words = signal_spec.lower().split()
+        conditions = []
+        for word in words[:3]:  # Limit to first 3 words to avoid overly complex queries
+            conditions.append("(LOWER(name) LIKE ? OR LOWER(description) LIKE ?)")
+            search_term = f"%{word}%"
+            params.extend([search_term, search_term])
+        
+        if conditions:
+            query += " AND (" + " OR ".join(conditions) + ")"
     
     # Add max results
     if max_results:

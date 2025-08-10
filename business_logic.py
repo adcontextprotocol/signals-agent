@@ -8,6 +8,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import uuid
+import logging
 
 # import main  # Removed to avoid module-level execution during import
 from schemas import (
@@ -17,6 +18,9 @@ from schemas import (
     ActivateSignalResponse,
     CustomSegmentProposal
 )
+from rate_limiter import gemini_rate_limiter
+
+logger = logging.getLogger(__name__)
 
 # Test mode detection
 import os
@@ -55,7 +59,8 @@ def process_discovery_query(
     deliver_to: Optional[DeliverySpecification] = None,
     filters: Optional[SignalFilters] = None,
     max_results: int = 10,
-    principal_id: Optional[str] = None
+    principal_id: Optional[str] = None,
+    limit: Optional[int] = None
 ) -> Dict[str, Any]:
     """Process a discovery query and return structured results.
     
@@ -67,6 +72,10 @@ def process_discovery_query(
     - ai_intent: The AI's interpretation of the query
     """
     
+    # Use limit if provided, otherwise max_results
+    if limit is not None:
+        max_results = limit
+    
     # Get or create context ID
     if not context_id:
         context_id = f"ctx_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -74,10 +83,57 @@ def process_discovery_query(
     # Get conversation history
     history = conversations.get(context_id, [])
     
-    # Let AI process the query
+    # Quick check for obvious contextual queries to avoid unnecessary AI calls
+    contextual_keywords = [
+        "tell me more", "more about", "these signals", "those signals",
+        "the signals", "more details", "explain", "what about",
+        "those segments", "these segments", "the segments",
+        "previous", "last search", "custom segments", "tell me about"
+    ]
+    
+    query_lower = query.lower()
+    is_likely_contextual = any(keyword in query_lower for keyword in contextual_keywords)
+    
+    # If likely contextual and we have a context, try to handle without AI
+    if is_likely_contextual and context_id:
+        from core_logic import get_discovery_context, get_signals_by_ids
+        prev_context = get_discovery_context(context_id)
+        
+        if prev_context and prev_context.get("signal_ids"):
+            # This is definitely a contextual query - handle without AI
+            signals = get_signals_by_ids(prev_context["signal_ids"])
+            custom_proposals = prev_context.get("custom_proposals", [])
+            
+            # Create response with the same signals
+            response = GetSignalsResponse(
+                message=f"Here are more details about the {len(signals)} signals from your previous search",
+                signals=signals,
+                custom_segment_proposals=[CustomSegmentProposal(**p) for p in custom_proposals] if custom_proposals else None,
+                context_id=context_id
+            )
+            
+            # Generate a simple contextual message without AI
+            signal_names = [s.name for s in signals[:3]]
+            if "custom" in query_lower and custom_proposals:
+                custom_names = [p.get("proposed_name", "Custom") if isinstance(p, dict) else p.proposed_name for p in custom_proposals[:2]]
+                message_text = f"The custom segments I suggested are: {', '.join(custom_names)}. These combine multiple targeting criteria for better precision. The standard signals include {', '.join(signal_names)} and {len(signals)-3} others."
+            else:
+                message_text = f"The {len(signals)} signals I found include: {', '.join(signal_names)}. Each offers different coverage and pricing across multiple platforms. Would you like to activate any of these?"
+            
+            # Store in conversation history and return
+            conversations[context_id] = history + [{
+                "query": query,
+                "response": message_text,
+                "timestamp": datetime.utcnow().isoformat()
+            }]
+            
+            response.message = message_text
+            return response
+    
+    # For non-contextual or unclear queries, use AI
     ai_intent = _ai_process_query(query, context_id, history)
     
-    # Check if this is a contextual query
+    # Check if AI determined this is contextual (but we didn't catch it above)
     if ai_intent.get("is_contextual", False) and context_id:
         # This is a follow-up question about previous results
         from core_logic import get_discovery_context, get_signals_by_ids
@@ -136,13 +192,9 @@ def process_discovery_query(
         "timestamp": datetime.utcnow().isoformat()
     }]
     
-    return {
-        "signals": response.signals,
-        "custom_proposals": response.custom_segment_proposals,
-        "message": message_text,
-        "context_id": context_id,
-        "ai_intent": ai_intent
-    }
+    # Update the response message and return the response object (not a dict)
+    response.message = message_text
+    return response
 
 
 def process_activation(
@@ -205,8 +257,29 @@ def _ai_process_query(query: str, context_id: str, history: List[Dict]) -> Dict[
     Be aggressive about marking queries as contextual if they reference previous results.
     """
     
-    response = model.generate_content(prompt)
-    return json.loads(response.text.strip().replace("```json", "").replace("```", ""))
+    # Apply rate limiting for Gemini API
+    if not gemini_rate_limiter.acquire(timeout=5):
+        logger.warning("Rate limit timeout for Gemini API")
+        # Return a safe fallback response
+        return {
+            "is_contextual": False,
+            "search_query": query,
+            "intent": "discovery",
+            "key_terms": query.lower().split()[:5]
+        }
+    
+    try:
+        response = model.generate_content(prompt)
+        return json.loads(response.text.strip().replace("```json", "").replace("```", ""))
+    except Exception as e:
+        logger.error(f"Gemini API error: {e}")
+        # Return a safe fallback response
+        return {
+            "is_contextual": False,
+            "search_query": query,
+            "intent": "discovery", 
+            "key_terms": query.lower().split()[:5]
+        }
 
 
 def _generate_contextual_message(query: str, signals: List, custom_proposals: List, ai_intent: Dict[str, Any]) -> str:
@@ -254,8 +327,27 @@ def _generate_contextual_message(query: str, signals: List, custom_proposals: Li
     Return only the text, no formatting.
     """
     
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    # Apply rate limiting for Gemini API
+    if not gemini_rate_limiter.acquire(timeout=5):
+        logger.warning("Rate limit timeout for Gemini API in message generation")
+        # Return a safe fallback response based on context
+        if 'signals' in locals():
+            signal_names = [s.name for s in signals[:3]]
+            return f"Here are more details about the {len(signals)} signals from your previous search, including {', '.join(signal_names)}."
+        else:
+            return "Processing your request. Please try again in a moment."
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        logger.error(f"Gemini API error in message generation: {e}")
+        # Return a safe fallback response
+        if 'signals' in locals():
+            signal_names = [s.name for s in signals[:3]]
+            return f"Found {len(signals)} relevant signals for your search."
+        else:
+            return "Processing your request. Please try again in a moment."
 
 
 def _ai_generate_message(query: str, results: GetSignalsResponse, ai_intent: Dict[str, Any]) -> str:
@@ -293,5 +385,24 @@ def _ai_generate_message(query: str, results: GetSignalsResponse, ai_intent: Dic
     Return only the text, no formatting.
     """
     
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    # Apply rate limiting for Gemini API
+    if not gemini_rate_limiter.acquire(timeout=5):
+        logger.warning("Rate limit timeout for Gemini API in message generation")
+        # Return a safe fallback response based on context
+        if 'signals' in locals():
+            signal_names = [s.name for s in signals[:3]]
+            return f"Here are more details about the {len(signals)} signals from your previous search, including {', '.join(signal_names)}."
+        else:
+            return "Processing your request. Please try again in a moment."
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        logger.error(f"Gemini API error in message generation: {e}")
+        # Return a safe fallback response
+        if 'signals' in locals():
+            signal_names = [s.name for s in signals[:3]]
+            return f"Found {len(signals)} relevant signals for your search."
+        else:
+            return "Processing your request. Please try again in a moment."

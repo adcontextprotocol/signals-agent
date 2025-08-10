@@ -29,7 +29,7 @@ def get_agent_card(base_url: str) -> Dict[str, Any]:
         "defaultInputModes": ["text"],
         "defaultOutputModes": ["text"],
         "capabilities": {
-            "streaming": True,
+            "streaming": False,  # We don't support send/subscribe yet
             "pushNotifications": False,
             "stateTransitionHistory": False,
             "extensions": []
@@ -85,7 +85,7 @@ async def handle_task(request: Dict[str, Any]):
         
         # Format signals for response
         signals_data = []
-        for s in result["signals"][:5]:
+        for s in result.signals[:5]:
             signal_info = {
                 "name": s.name,
                 "id": s.signals_agent_segment_id,
@@ -98,7 +98,7 @@ async def handle_task(request: Dict[str, Any]):
         
         # Format custom proposals
         custom_data = []
-        for p in (result.get("custom_proposals") or [])[:3]:
+        for p in (result.custom_segment_proposals or [])[:3]:
             custom_data.append({
                 "name": p.proposed_name,
                 "description": p.description,
@@ -111,14 +111,14 @@ async def handle_task(request: Dict[str, Any]):
         data_part = {
             "signals": signals_data,
             "custom_segments": custom_data if custom_data else None,
-            "total_found": len(result["signals"])
+            "total_found": len(result.signals)
         }
         
         # Build response
         return {
             "id": task_id,
             "kind": "task",
-            "contextId": result["context_id"],
+            "contextId": result.context_id,
             "status": {
                 "state": "completed",
                 "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -126,7 +126,7 @@ async def handle_task(request: Dict[str, Any]):
                     "kind": "message",
                     "message_id": f"msg_{uuid.uuid4().hex[:12]}",
                     "parts": [
-                        {"kind": "text", "text": result["message"]},
+                        {"kind": "text", "text": result.message},
                         {"kind": "data", "data": data_part}
                     ],
                     "role": "agent"
@@ -169,10 +169,10 @@ async def handle_task_stream(request: Dict[str, Any]):
         )
         
         # Stream results
-        yield f"data: {json.dumps({'status': 'completed', 'message': result['message']})}\n\n"
+        yield f"data: {json.dumps({'status': 'completed', 'message': result.message})}\n\n"
         
         # Stream signal details
-        for signal in result["signals"][:5]:
+        for signal in result.signals[:5]:
             yield f"data: {json.dumps({'signal': signal.name, 'coverage': signal.coverage_percentage})}\n\n"
             await asyncio.sleep(0.05)
         
@@ -189,7 +189,7 @@ async def handle_task_stream(request: Dict[str, Any]):
     )
 
 
-async def _handle_json_rpc_request(request: Dict[str, Any]):
+async def _handle_json_rpc_request(request: Dict[str, Any], raw_request: Request = None):
     """Internal handler for JSON-RPC message/send requests."""
     
     if request.get("jsonrpc") != "2.0":
@@ -227,21 +227,22 @@ async def _handle_json_rpc_request(request: Dict[str, Any]):
         )
         
         # Build JSON-RPC response
-        return JSONResponse(
-            content={
-                "jsonrpc": "2.0",
-                "result": {
-                    "kind": "message",
-                    "message_id": f"msg_{uuid.uuid4().hex[:12]}",
-                    "parts": [
-                        {"kind": "text", "text": result["message"]}
-                    ],
-                    "role": "agent",
-                    "contextId": result["context_id"]
-                },
-                "id": request_id
-            }
-        )
+        response_data = {
+            "jsonrpc": "2.0",
+            "result": {
+                "kind": "message",
+                "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+                "parts": [
+                    {"kind": "text", "text": result.message}
+                ],
+                "role": "agent",
+                "contextId": result.context_id
+            },
+            "id": request_id
+        }
+        
+        # Always return JSON since we don't support streaming
+        return JSONResponse(content=response_data)
     
     return JSONResponse(
         content={
@@ -254,12 +255,12 @@ async def _handle_json_rpc_request(request: Dict[str, Any]):
 
 
 @router.post("/a2a/jsonrpc")
-async def handle_json_rpc(request: Dict[str, Any]):
+async def handle_json_rpc(request: Dict[str, Any], raw_request: Request):
     """Handle JSON-RPC message/send requests at dedicated endpoint."""
-    return await _handle_json_rpc_request(request)
+    return await _handle_json_rpc_request(request, raw_request)
 
 
 @router.post("/")
-async def handle_json_rpc_root(request: Dict[str, Any]):
+async def handle_json_rpc_root(request: Dict[str, Any], raw_request: Request):
     """Handle JSON-RPC message/send requests at root for compatibility."""
-    return await _handle_json_rpc_request(request)
+    return await _handle_json_rpc_request(request, raw_request)

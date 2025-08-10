@@ -1,0 +1,23 @@
+# Requirements for using python-a2a as our complete server
+
+# Core library with all features
+python-a2a[all]
+
+# Or minimal installation with specific features:
+# python-a2a[server,mcp]  # Just server and MCP support
+
+# Keep our existing dependencies for business logic
+google-generativeai
+pydantic
+rich
+requests
+
+# Optional: If you want the visual UI
+# python-a2a[ui]
+
+# Note: python-a2a includes:
+# - FastAPI (for server)
+# - httpx (for client)
+# - SSE support
+# - JSON-RPC handling
+# - All protocol implementations
