@@ -19,31 +19,56 @@ router = APIRouter()
 
 
 def get_agent_card(base_url: str) -> Dict[str, Any]:
-    """Generate the A2A agent card."""
+    """Generate the A2A agent card with proper structure."""
     return {
-        "name": "Signals Agent",
+        "name": "Signals Activation Agent",
         "description": "AI-powered audience discovery and activation agent",
         "version": "2.0.0",
-        "url": f"{base_url}/a2a/jsonrpc",  # Required field - points to JSON-RPC endpoint
+        "url": f"{base_url}/a2a/task",  # Point to the task endpoint
         "protocolVersion": "a2a/v1",
+        # Required input/output modes
         "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"],
+        "defaultOutputModes": ["text", "json"],
+        # Capabilities as a dictionary (AgentCapabilities type)
         "capabilities": {
-            "streaming": False,  # We don't support send/subscribe yet
+            "input": ["text"],
+            "output": ["text", "json"],
+            "tools": ["discover_audiences", "search_signals"],
+            "streaming": False,
             "pushNotifications": False,
             "stateTransitionHistory": False,
             "extensions": []
         },
-        "skills": [{
-            "id": "discover",
-            "name": "Discover Audiences",
-            "description": "Natural language audience discovery",
-            "tags": ["search", "discovery", "audience", "signals"]
-        }],
+        # Skills with required id and tags fields
+        "skills": [
+            {
+                "id": "discover_audiences",
+                "name": "Discover Audiences",
+                "description": "Discover audience segments using natural language queries",
+                "tags": ["audience", "discovery", "ai", "search"],
+                "examples": [
+                    "Find luxury car buyers",
+                    "Show me sports enthusiasts",
+                    "Discover high-income travelers"
+                ]
+            },
+            {
+                "id": "search_signals",
+                "name": "Search Signals",
+                "description": "Search for specific audience signals in the database",
+                "tags": ["search", "signals", "database"],
+                "examples": [
+                    "Search for automotive signals",
+                    "Find sports-related audiences",
+                    "Look for travel segments"
+                ]
+            }
+        ],
+        # Provider with required url field
         "provider": {
-            "name": "Scope3",
-            "organization": "Scope3",
-            "url": "https://scope3.com"
+            "name": "Signals Agent",
+            "organization": "Signals Inc.",
+            "url": "https://audience-agent.fly.dev"
         }
     }
 

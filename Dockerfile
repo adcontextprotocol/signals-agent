@@ -29,5 +29,5 @@ RUN python database.py
 # Expose port for unified server
 EXPOSE 8000
 
-# Run the unified server using python-a2a  
-CMD ["python", "signals_agent_simple.py"]
+# Run the unified server with FastAPI
+CMD ["python", "-m", "uvicorn", "unified_server:app", "--host", "0.0.0.0", "--port", "8000"]
