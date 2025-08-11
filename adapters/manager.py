@@ -17,6 +17,10 @@ class AdapterManager:
         platforms_config = self.config.get('platforms', {})
         
         for platform_name, platform_config in platforms_config.items():
+            # Skip comment fields and non-dict values
+            if platform_name.startswith('_') or not isinstance(platform_config, dict):
+                continue
+            
             if not platform_config.get('enabled', False):
                 continue
             
