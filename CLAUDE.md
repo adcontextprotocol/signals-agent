@@ -2,48 +2,6 @@
 
 This document provides implementation details and instructions for working with the Audience Activation Protocol agent.
 
-## A2A Protocol Implementation
-
-This agent implements both MCP and A2A protocols in a unified server (`unified_server.py`).
-
-### Key Implementation Details
-
-#### 1. Dual Protocol Support
-- Single FastAPI server handles both MCP (`/mcp`) and A2A (`/a2a/task`, `/agent-card`) endpoints
-- Shared business logic in `main.py` used by both protocols
-- Protocol-specific request/response transformations in `unified_server.py`
-
-#### 2. A2A Agent Card
-- Available at both `/agent-card` and `/.well-known/agent.json` (A2A spec requirement)
-- Dynamically detects HTTPS via `X-Forwarded-Proto` header for correct URLs
-- Includes required fields: `name`, `description`, `version`, `capabilities`, `skills`, `provider`
-- Skills array duplicates capabilities for A2A Inspector compatibility
-
-#### 3. JSON-RPC Message Handling
-- Root endpoint (`POST /`) detects JSON-RPC `message/send` requests
-- Extracts query from `message.parts` array
-- Returns `Message` object (not `Task`) for message/send requests
-- Properly formats with `message_id` (underscore, not camelCase)
-
-#### 4. Task Response Format
-- All task responses return `Task` objects with nested `TaskStatus` and `Message`
-- Status states: `completed`, `working`, `failed`
-- Message includes both `TextPart` (human-readable) and `DataPart` (structured JSON)
-- Error responses use numeric JSON-RPC codes (-32602, -32603)
-
-#### 5. Contextual Query Handling
-- Detects follow-up questions about signals or custom segments
-- Keywords: "tell me about the signal", "custom segments", etc.
-- Returns contextual explanations instead of new searches
-- Maintains `contextId` through conversation flow
-
-#### 6. Common Pitfalls Avoided
-- **Database duplicates**: Check if data exists before inserting on initialization
-- **Deployment counting**: Count unique platforms, not individual deployments
-- **Message format**: Use "available on N platforms" not "N ready for activation"
-- **Field naming**: Use `message_id` not `messageId`, `Role.agent` not `Role.assistant`
-- **CORS headers**: Essential for web-based tools like A2A Inspector
-
 ## Overview
 
 The Audience Agent implements the Audience Activation Protocol with support for:

@@ -9,7 +9,7 @@ primary_region = 'fra'
 [build]
 
 [processes]
-  app = "uv run fastmcp --transport http --port 8000 --host 0.0.0.0 unified_server.py"
+  app = "uv run fastmcp --transport http --port 8000 --host 0.0.0.0 main.py"
   sync = "uv run python sync_liveramp_catalog.py --full"
 
 [http_service]
