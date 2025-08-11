@@ -43,4 +43,4 @@ exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command runs the MCP server
-CMD ["uv", "run", "fastmcp", "--transport", "http", "--port", "8000", "--host", "0.0.0.0", "main.py"]
+CMD ["uv", "run", "fastmcp", "run", "main.py", "--transport", "http", "--port", "8000", "--host", "0.0.0.0"]

@@ -9,7 +9,7 @@ primary_region = 'fra'
 [build]
 
 [processes]
-  app = "uv run fastmcp --transport http --port 8000 --host 0.0.0.0 main.py"
+  app = "uv run fastmcp run main.py --transport http --port 8000 --host 0.0.0.0"
   sync = "uv run python sync_liveramp_catalog.py --full"
 
 [http_service]
@@ -24,7 +24,7 @@ primary_region = 'fra'
 [mounts]
   source = "signals_data"
   destination = "/data"
-  processes = ["app", "sync"]
+  processes = ["app"]
 
 [env]
   DATABASE_PATH = "/data/signals_agent.db"
