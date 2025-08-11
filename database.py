@@ -90,7 +90,7 @@ def create_tables(cursor: sqlite3.Cursor):
         )
     """)
     
-    # Unified contexts table for all context types (A2A-ready)
+    # Unified contexts table for all context types
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS contexts (
             context_id TEXT PRIMARY KEY,
