@@ -501,7 +501,8 @@ def get_signals(
     try:
         platform_segments = adapter_manager.get_all_segments(
             deliver_to.model_dump(), 
-            principal_id
+            principal_id,
+            signal_spec  # Pass search query for LiveRamp and other adapters
         )
         if platform_segments:
             console.print(f"[dim]Found {len(platform_segments)} segments from platform APIs[/dim]")
