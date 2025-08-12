@@ -527,12 +527,14 @@ class LiveRampAdapter(PlatformAdapter):
             # Use intelligent search
             segments = self.search_segments(search_query)
         else:
-            # Get all segments from cache (no limit for full catalog access)
+            # Limit results to prevent overwhelming the system
+            # When no search query, return a reasonable sample
+            MAX_SEGMENTS = 100
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 
-                cursor.execute('SELECT raw_data FROM liveramp_segments')  # No LIMIT - return full catalog
+                cursor.execute('SELECT raw_data FROM liveramp_segments LIMIT ?', (MAX_SEGMENTS,))
                 segments = [json.loads(row['raw_data']) for row in cursor.fetchall()]
         
         # Normalize to internal format
