@@ -17,6 +17,10 @@ class AdapterManager:
         platforms_config = self.config.get('platforms', {})
         
         for platform_name, platform_config in platforms_config.items():
+            # Skip comment fields and non-dict values
+            if platform_name.startswith('_') or not isinstance(platform_config, dict):
+                continue
+            
             if not platform_config.get('enabled', False):
                 continue
             
@@ -67,15 +71,21 @@ class AdapterManager:
         """Get an adapter for the specified platform."""
         return self.adapters.get(platform)
     
-    def get_segments_for_platform(self, platform: str, account_id: str, principal_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_segments_for_platform(self, platform: str, account_id: str, principal_id: Optional[str] = None, search_query: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get segments from a specific platform."""
         adapter = self.get_adapter(platform)
         if not adapter:
             raise ValueError(f"No adapter available for platform: {platform}")
         
-        return adapter.get_segments(account_id, principal_id)
+        # Check if adapter supports search_query parameter
+        import inspect
+        sig = inspect.signature(adapter.get_segments)
+        if 'search_query' in sig.parameters:
+            return adapter.get_segments(account_id, principal_id, search_query)
+        else:
+            return adapter.get_segments(account_id, principal_id)
     
-    def get_all_segments(self, delivery_spec: Dict[str, Any], principal_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_all_segments(self, delivery_spec: Dict[str, Any], principal_id: Optional[str] = None, search_query: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get segments from all relevant platforms based on delivery specification."""
         all_segments = []
         
@@ -101,7 +111,7 @@ class AdapterManager:
                 # For now, use a default account - this would need to be mapped from principal
                 account_id = self._get_account_for_principal(platform_name, principal_id)
                 if account_id:
-                    segments = self.get_segments_for_platform(platform_name, account_id, principal_id)
+                    segments = self.get_segments_for_platform(platform_name, account_id, principal_id, search_query)
                     all_segments.extend(segments)
             except Exception as e:
                 print(f"Failed to get segments from {platform_name}: {e}")
@@ -110,12 +120,17 @@ class AdapterManager:
     
     def _get_account_for_principal(self, platform: str, principal_id: Optional[str]) -> Optional[str]:
         """Get the account ID for a principal on a specific platform."""
+        platform_config = self.config.get('platforms', {}).get(platform, {})
+        
+        # For LiveRamp, always return a default account to enable public catalog search
+        if platform == 'liveramp':
+            # Use the configured account_id for LiveRamp (from env vars)
+            return platform_config.get('account_id', 'default')
+        
         if not principal_id:
             return None
         
-        # This should query a database mapping principals to platform accounts
-        # For now, return demo account IDs based on config
-        platform_config = self.config.get('platforms', {}).get(platform, {})
+        # For other platforms, map principals to accounts
         principal_accounts = platform_config.get('principal_accounts', {})
         
         return principal_accounts.get(principal_id)

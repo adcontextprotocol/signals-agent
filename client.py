@@ -452,9 +452,9 @@ async def quick_prompt():
             if any(sig.get("match_reason") for sig in response["signals"]):
                 console.print("\n[bold yellow]🧠 AI Match Explanations[/bold yellow]")
                 for i, signal in enumerate(response["signals"], 1):
-                    if audience.get("match_reason"):
-                        console.print(f"[dim]{i}.[/dim] [bold]{audience['name']}[/bold]")
-                        console.print(f"   [italic]{audience['match_reason']}[/italic]\n")
+                    if signal.get("match_reason"):
+                        console.print(f"[dim]{i}.[/dim] [bold]{signal['name']}[/bold]")
+                        console.print(f"   [italic]{signal['match_reason']}[/italic]\n")
             
             # Show custom segment proposals
             if response.get("custom_segment_proposals"):

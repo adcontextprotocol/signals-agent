@@ -7,7 +7,8 @@
   },
   "database": {
     "type": "sqlite",
-    "path": "signals_agent.db"
+    "path": "signals_agent.db",
+    "_comment": "In production, DATABASE_PATH env var overrides this (e.g., /data/signals_agent.db)"
   },
   "supported_platforms": [
     "the-trade-desk",
@@ -27,9 +28,11 @@
     "max_activation_duration_minutes": 1440
   },
   "platforms": {
+    "_comment": "Platform integrations - only Index Exchange is currently implemented. LiveRamp requires additional setup.",
     "index-exchange": {
       "enabled": true,
       "test_mode": true,
+      "_comment": "Set environment variables IX_USERNAME and IX_PASSWORD for production",
       "base_url": "https://app.indexexchange.com/api",
       "username": "your-username@example.com",
       "password": "your-password-here",
@@ -42,6 +45,7 @@
     },
     "the-trade-desk": {
       "enabled": false,
+      "_comment": "Placeholder - not yet implemented",
       "test_mode": false,
       "base_url": "https://api.thetradedesk.com",
       "cache_duration_seconds": 60,
@@ -49,6 +53,7 @@
     },
     "liveramp": {
       "enabled": false,
+      "_comment": "Requires setting LIVERAMP_CLIENT_ID, LIVERAMP_SECRET_KEY, LIVERAMP_ACCOUNT_ID, LIVERAMP_TOKEN_URI, LIVERAMP_OWNER_ORG env vars",
       "base_url": "https://api.liveramp.com",
       "client_id": "your-liveramp-client-id",
       "client_secret": "your-liveramp-client-secret",
@@ -59,5 +64,6 @@
       }
     }
   },
-  "gemini_api_key": "your-gemini-api-key-here"
+  "gemini_api_key": "your-gemini-api-key-here",
+  "_comment_gemini": "Set GEMINI_API_KEY environment variable for production"
 }

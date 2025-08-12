@@ -18,12 +18,13 @@ def init_db():
     # Create tables
     create_tables(cursor)
     
-    # Insert sample data
-    insert_sample_data(cursor)
+    # Don't insert sample data in production
+    # Uncomment the line below to insert sample data for development
+    # insert_sample_data(cursor)
     
     conn.commit()
     conn.close()
-    print("Database initialized with sample data")
+    print("Database initialized successfully")
 
 
 def create_tables(cursor: sqlite3.Cursor):
@@ -90,7 +91,7 @@ def create_tables(cursor: sqlite3.Cursor):
         )
     """)
     
-    # Unified contexts table for all context types (A2A-ready)
+    # Unified contexts table for all context types
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS contexts (
             context_id TEXT PRIMARY KEY,

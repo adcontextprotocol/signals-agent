@@ -28,7 +28,7 @@ RUN mkdir -p /data
 
 # Don't initialize database in build - it will be on mounted volume
 
-# Expose port for unified server
+# Expose port for MCP server
 EXPOSE 8000
 
 # Create an entrypoint script to handle database initialization
@@ -42,5 +42,5 @@ exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 # Use entrypoint to ensure database exists
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Default command runs the unified server
-CMD ["uvicorn", "unified_server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command runs the MCP server
+CMD ["uv", "run", "fastmcp", "run", "main.py", "--transport", "http", "--port", "8000", "--host", "0.0.0.0"]

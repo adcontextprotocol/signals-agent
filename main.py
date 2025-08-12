@@ -26,7 +26,8 @@ segment_activations: Dict[str, Dict] = {}
 
 def get_db_connection():
     """Get database connection with row factory."""
-    conn = sqlite3.connect('signals_agent.db', timeout=30.0)
+    db_path = os.environ.get('DATABASE_PATH', 'signals_agent.db')
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     # Enable WAL mode for better concurrent access
     conn.execute("PRAGMA journal_mode=WAL")
@@ -500,7 +501,8 @@ def get_signals(
     try:
         platform_segments = adapter_manager.get_all_segments(
             deliver_to.model_dump(), 
-            principal_id
+            principal_id,
+            signal_spec  # Pass search query for LiveRamp and other adapters
         )
         if platform_segments:
             console.print(f"[dim]Found {len(platform_segments)} segments from platform APIs[/dim]")

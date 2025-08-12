@@ -168,53 +168,53 @@ class LiveRampCatalogSync:
             # Clear old LiveRamp segments within transaction
             cursor.execute("DELETE FROM liveramp_segments")
             cursor.execute("DELETE FROM liveramp_segments_fts")
-        
-        # Prepare batch insert data
-        segment_data = []
-        
-        for segment in segments:
-            segment_id = str(segment.get('id'))
-            name = segment.get('name', '')
-            description = segment.get('description', '')
-            provider = segment.get('providerName', '')
-            segment_type = segment.get('segmentType', '')
             
-            # Extract reach
-            reach_count = None
-            reach_info = segment.get('reach', {})
-            if isinstance(reach_info, dict):
-                input_records = reach_info.get('inputRecords', {})
-                if isinstance(input_records, dict):
-                    reach_count = input_records.get('count')
+            # Prepare batch insert data
+            segment_data = []
             
-            # Extract pricing
-            has_pricing = False
-            cpm_price = None
-            subscriptions = segment.get('subscriptions', [])
-            for sub in subscriptions:
-                if isinstance(sub, dict):
-                    price_info = sub.get('price', {})
-                    if isinstance(price_info, dict):
-                        cpm_price = price_info.get('cpm')
-                        if cpm_price:
-                            has_pricing = True
-                            break
+            for segment in segments:
+                segment_id = str(segment.get('id'))
+                name = segment.get('name', '')
+                description = segment.get('description', '')
+                provider = segment.get('providerName', '')
+                segment_type = segment.get('segmentType', '')
+                
+                # Extract reach
+                reach_count = None
+                reach_info = segment.get('reach', {})
+                if isinstance(reach_info, dict):
+                    input_records = reach_info.get('inputRecords', {})
+                    if isinstance(input_records, dict):
+                        reach_count = input_records.get('count')
+                
+                # Extract pricing
+                has_pricing = False
+                cpm_price = None
+                subscriptions = segment.get('subscriptions', [])
+                for sub in subscriptions:
+                    if isinstance(sub, dict):
+                        price_info = sub.get('price', {})
+                        if isinstance(price_info, dict):
+                            cpm_price = price_info.get('cpm')
+                            if cpm_price:
+                                has_pricing = True
+                                break
+                
+                # Extract categories
+                categories = []
+                for cat in segment.get('categories', []):
+                    if isinstance(cat, dict):
+                        categories.append(cat.get('name', ''))
+                    else:
+                        categories.append(str(cat))
+                categories_str = ', '.join(categories)
+                
+                segment_data.append((
+                    segment_id, name, description, provider, segment_type,
+                    reach_count, has_pricing, cpm_price, categories_str,
+                    json.dumps(segment)
+                ))
             
-            # Extract categories
-            categories = []
-            for cat in segment.get('categories', []):
-                if isinstance(cat, dict):
-                    categories.append(cat.get('name', ''))
-                else:
-                    categories.append(str(cat))
-            categories_str = ', '.join(categories)
-            
-            segment_data.append((
-                segment_id, name, description, provider, segment_type,
-                reach_count, has_pricing, cpm_price, categories_str,
-                json.dumps(segment)
-            ))
-        
             # Batch insert
             cursor.executemany('''
                 INSERT INTO liveramp_segments (

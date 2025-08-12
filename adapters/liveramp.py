@@ -122,7 +122,7 @@ class LiveRampAdapter(PlatformAdapter):
         cursor.execute('''
             CREATE TRIGGER IF NOT EXISTS segments_ai 
             AFTER INSERT ON segments BEGIN
-                INSERT INTO segments_fts(
+                INSERT INTO liveramp_segments_fts(
                     rowid, segment_id, name, description, provider_name, categories
                 ) VALUES (
                     new.id, new.segment_id, new.name, new.description, 
@@ -182,8 +182,8 @@ class LiveRampAdapter(PlatformAdapter):
             cursor.execute("BEGIN EXCLUSIVE TRANSACTION")
             
             # Clear old data once at the start
-            cursor.execute("DELETE FROM segments")
-            cursor.execute("DELETE FROM segments_fts")
+            cursor.execute("DELETE FROM liveramp_segments")
+            cursor.execute("DELETE FROM liveramp_segments_fts")
             
             # Implement cursor-based pagination with batch processing
             while True:
@@ -331,7 +331,7 @@ class LiveRampAdapter(PlatformAdapter):
         
         # Batch insert (no transaction management here, handled by caller)
         cursor.executemany('''
-            INSERT INTO segments (
+            INSERT INTO liveramp_segments (
                 segment_id, name, description, provider_name, segment_type,
                 reach_count, has_pricing, cpm_price, categories,
                 raw_data, search_text
@@ -348,64 +348,61 @@ class LiveRampAdapter(PlatformAdapter):
             cursor.execute("BEGIN EXCLUSIVE TRANSACTION")
             
             # Clear old data within transaction
-            cursor.execute("DELETE FROM segments")
-            cursor.execute("DELETE FROM segments_fts")
-        
-        # Prepare data for batch insert
-        segment_data = []
-        for segment in segments:
-            segment_id = str(segment.get('id'))
-            name = segment.get('name', '')
-            description = segment.get('description', '')
-            provider = segment.get('providerName', '')
-            segment_type = segment.get('segmentType', '')
+            cursor.execute("DELETE FROM liveramp_segments")
+            # Note: FTS table is auto-updated via triggers
             
-            # Extract reach
-            reach_info = segment.get('reach', {})
-            reach_count = None
-            if isinstance(reach_info, dict):
-                input_records = reach_info.get('inputRecords', {})
-                if isinstance(input_records, dict):
-                    reach_count = input_records.get('count')
+            # Prepare data for batch insert
+            segment_data = []
+            for segment in segments:
+                segment_id = str(segment.get('id'))
+                name = segment.get('name', '')
+                description = segment.get('description', '')
+                provider = segment.get('providerName', '')
+                segment_type = segment.get('segmentType', '')
+                
+                # Extract reach
+                reach_info = segment.get('reach', {})
+                reach_count = None
+                if isinstance(reach_info, dict):
+                    input_records = reach_info.get('inputRecords', {})
+                    if isinstance(input_records, dict):
+                        reach_count = input_records.get('count')
+                
+                # Extract pricing
+                has_pricing = False
+                cpm_price = None
+                subscriptions = segment.get('subscriptions', [])
+                for sub in subscriptions:
+                    if isinstance(sub, dict):
+                        price_info = sub.get('price', {})
+                        if isinstance(price_info, dict):
+                            cpm_price = price_info.get('cpm')
+                            if cpm_price:
+                                has_pricing = True
+                                break
+                
+                # Extract categories
+                categories = []
+                for cat in segment.get('categories', []):
+                    if isinstance(cat, dict):
+                        categories.append(cat.get('name', ''))
+                    else:
+                        categories.append(str(cat))
+                categories_str = ', '.join(categories)
+                
+                segment_data.append((
+                    segment_id, name, description, provider, segment_type,
+                    reach_count, has_pricing, cpm_price, categories_str,
+                    json.dumps(segment)
+                ))
             
-            # Extract pricing
-            has_pricing = False
-            cpm_price = None
-            subscriptions = segment.get('subscriptions', [])
-            for sub in subscriptions:
-                if isinstance(sub, dict):
-                    price_info = sub.get('price', {})
-                    if isinstance(price_info, dict):
-                        cpm_price = price_info.get('cpm')
-                        if cpm_price:
-                            has_pricing = True
-                            break
-            
-            # Extract categories
-            categories = []
-            for cat in segment.get('categories', []):
-                if isinstance(cat, dict):
-                    categories.append(cat.get('name', ''))
-                else:
-                    categories.append(str(cat))
-            categories_str = ', '.join(categories)
-            
-            # Create search text for better FTS
-            search_text = f"{name} {description} {provider} {categories_str}"
-            
-            segment_data.append((
-                segment_id, name, description, provider, segment_type,
-                reach_count, has_pricing, cpm_price, categories_str,
-                json.dumps(segment), search_text
-            ))
-        
             # Batch insert
             cursor.executemany('''
-                INSERT INTO segments (
+                INSERT INTO liveramp_segments (
                     segment_id, name, description, provider_name, segment_type,
                     reach_count, has_pricing, cpm_price, categories,
-                    raw_data, search_text
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    raw_data
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', segment_data)
             
             # Commit transaction
@@ -436,38 +433,38 @@ class LiveRampAdapter(PlatformAdapter):
         sanitized_query = sanitized_query.replace('?', '')
         sanitized_query = sanitized_query.replace('^', '')
         
-            # Use FTS5 for intelligent search
-            cursor.execute('''
+        # Use FTS5 for intelligent search
+        cursor.execute('''
                 SELECT s.*, 
                        rank * -1 as relevance_score
-                FROM segments s
-                JOIN segments_fts fts ON s.id = fts.rowid
-                WHERE segments_fts MATCH ?
+                FROM liveramp_segments s
+                JOIN liveramp_segments_fts fts ON s.id = fts.rowid
+                WHERE liveramp_segments_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
-            ''', (sanitized_query, limit))
+        ''', (sanitized_query, limit))
+        
+        for row in cursor.fetchall():
+            segment_data = json.loads(row['raw_data'])
             
-            for row in cursor.fetchall():
-                segment_data = json.loads(row['raw_data'])
-                
-                # Calculate coverage percentage
-                coverage = None
-                if row['reach_count']:
-                    coverage = (row['reach_count'] / 250_000_000) * 100
-                    coverage = round(min(coverage, 50.0), 1)
-                
-                results.append({
-                    'segment_id': row['segment_id'],
-                    'name': row['name'],
-                    'description': row['description'],
-                    'provider': row['provider_name'],
-                    'coverage_percentage': coverage,
-                    'cpm': row['cpm_price'],
-                    'has_pricing': row['has_pricing'],
-                    'categories': row['categories'].split(', ') if row['categories'] else [],
-                    'relevance_score': row['relevance_score'],
-                    'raw_data': segment_data
-                })
+            # Calculate coverage percentage
+            coverage = None
+            if row['reach_count']:
+                coverage = (row['reach_count'] / 250_000_000) * 100
+                coverage = round(min(coverage, 50.0), 1)
+            
+            results.append({
+                'segment_id': row['segment_id'],
+                'name': row['name'],
+                'description': row['description'],
+                'provider': row['provider_name'],
+                'coverage_percentage': coverage,
+                'cpm': row['cpm_price'],
+                'has_pricing': row['has_pricing'],
+                'categories': row['categories'].split(', ') if row['categories'] else [],
+                'relevance_score': row['relevance_score'],
+                'raw_data': segment_data
+            })
         
         return results
     
@@ -477,7 +474,7 @@ class LiveRampAdapter(PlatformAdapter):
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            cursor.execute('SELECT * FROM segments WHERE segment_id = ?', (segment_id,))
+            cursor.execute('SELECT * FROM liveramp_segments WHERE segment_id = ?', (segment_id,))
             row = cursor.fetchone()
             
             if row:
@@ -494,7 +491,7 @@ class LiveRampAdapter(PlatformAdapter):
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT * FROM segments 
+                SELECT * FROM liveramp_segments 
                 WHERE categories LIKE ?
                 LIMIT ?
             ''', (f'%{category}%', limit))
@@ -520,7 +517,7 @@ class LiveRampAdapter(PlatformAdapter):
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 
-                cursor.execute('SELECT raw_data FROM segments')  # No LIMIT - return full catalog
+                cursor.execute('SELECT raw_data FROM liveramp_segments')  # No LIMIT - return full catalog
                 segments = [json.loads(row['raw_data']) for row in cursor.fetchall()]
         
         # Normalize to internal format
@@ -579,7 +576,7 @@ class LiveRampAdapter(PlatformAdapter):
             result = {'status': 'never_synced'}
         
         # Add segment count
-        cursor.execute('SELECT COUNT(*) as count FROM segments')
+        cursor.execute('SELECT COUNT(*) as count FROM liveramp_segments')
         result['current_segments'] = cursor.fetchone()['count']
         
         conn.close()
@@ -756,21 +753,21 @@ class LiveRampAdapter(PlatformAdapter):
         stats = {}
         
         # Total segments
-        cursor.execute('SELECT COUNT(*) as count FROM segments')
+        cursor.execute('SELECT COUNT(*) as count FROM liveramp_segments')
         stats['total_segments'] = cursor.fetchone()['count']
         
         # Segments with pricing
-        cursor.execute('SELECT COUNT(*) as count FROM segments WHERE has_pricing = 1')
+        cursor.execute('SELECT COUNT(*) as count FROM liveramp_segments WHERE has_pricing = 1')
         stats['segments_with_pricing'] = cursor.fetchone()['count']
         
         # Segments with reach data
-        cursor.execute('SELECT COUNT(*) as count FROM segments WHERE reach_count IS NOT NULL')
+        cursor.execute('SELECT COUNT(*) as count FROM liveramp_segments WHERE reach_count IS NOT NULL')
         stats['segments_with_reach'] = cursor.fetchone()['count']
         
         # Top providers
         cursor.execute('''
             SELECT provider_name, COUNT(*) as count 
-            FROM segments 
+            FROM liveramp_segments 
             GROUP BY provider_name 
             ORDER BY count DESC 
             LIMIT 10
