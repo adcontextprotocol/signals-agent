@@ -419,64 +419,72 @@ class LiveRampAdapter(PlatformAdapter):
     
     def search_segments(self, query: str, limit: int = 200) -> List[Dict[str, Any]]:
         """Search segments using full-text search."""
+        import re
         results = []
         
-        # Use context manager to ensure connection is closed
+        # Properly sanitize query to prevent SQL injection
+        # Only allow alphanumeric, spaces, and basic punctuation
+        sanitized_query = re.sub(r'[^\w\s\-]', ' ', query)
+        words = sanitized_query.lower().split()
+        
+        if not words:
+            return []  # Empty query returns no results
+        
+        # Build FTS5 query - use OR for multi-word search
+        # Each word is individually quoted for FTS5
+        fts_terms = []
+        for word in words:
+            if word.strip():  # Skip empty strings
+                # Quote each word for FTS5
+                fts_terms.append(f'"{word}"')
+        
+        if not fts_terms:
+            return []
+        
+        # Create OR query for FTS5
+        fts_query = ' OR '.join(fts_terms)
+        
+        # Use context manager to ensure connection is properly closed
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-        
-        # Build FTS5 query for better multi-word search
-        # Split query into words and search for ANY of them
-        words = query.lower().split()
-        
-        # Sanitize each word
-        sanitized_words = []
-        for word in words:
-            # Escape special FTS5 characters
-            word = word.replace('"', '""')
-            word = word.replace("'", "''")
-            word = word.replace('*', '')
-            word = word.replace('?', '')
-            word = word.replace('^', '')
-            sanitized_words.append(word)
-        
-        # Create OR query for FTS5 (match any word)
-        # This helps with queries like "finance bros" to match "finance" OR "bros"
-        fts_query = ' OR '.join(sanitized_words)
-        
-        # Use FTS5 for intelligent search
-        cursor.execute('''
-                SELECT s.*, 
-                       rank * -1 as relevance_score
-                FROM liveramp_segments s
-                JOIN liveramp_segments_fts fts ON s.id = fts.rowid
-                WHERE liveramp_segments_fts MATCH ?
-                ORDER BY rank
-                LIMIT ?
-        ''', (fts_query, limit))
-        
-        for row in cursor.fetchall():
-            segment_data = json.loads(row['raw_data'])
             
-            # Calculate coverage percentage
-            coverage = None
-            if row['reach_count']:
-                coverage = (row['reach_count'] / 250_000_000) * 100
-                coverage = round(min(coverage, 50.0), 1)
-            
-            results.append({
-                'segment_id': row['segment_id'],
-                'name': row['name'],
-                'description': row['description'],
-                'provider': row['provider_name'],
-                'coverage_percentage': coverage,
-                'cpm': row['cpm_price'],
-                'has_pricing': row['has_pricing'],
-                'categories': row['categories'].split(', ') if row['categories'] else [],
-                'relevance_score': row['relevance_score'],
-                'raw_data': segment_data
-            })
+            # Use FTS5 for intelligent search
+            try:
+                cursor.execute('''
+                    SELECT s.*, 
+                           rank * -1 as relevance_score
+                    FROM liveramp_segments s
+                    JOIN liveramp_segments_fts fts ON s.id = fts.rowid
+                    WHERE liveramp_segments_fts MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                ''', (fts_query, limit))
+                
+                for row in cursor.fetchall():
+                    segment_data = json.loads(row['raw_data'])
+                    
+                    # Calculate coverage percentage
+                    coverage = None
+                    if row['reach_count']:
+                        coverage = (row['reach_count'] / 250_000_000) * 100
+                        coverage = round(min(coverage, 50.0), 1)
+                    
+                    results.append({
+                        'segment_id': row['segment_id'],
+                        'name': row['name'],
+                        'description': row['description'],
+                        'provider': row['provider_name'],
+                        'coverage_percentage': coverage,
+                        'cpm': row['cpm_price'],
+                        'has_pricing': row['has_pricing'],
+                        'categories': row['categories'].split(', ') if row['categories'] else [],
+                        'relevance_score': row['relevance_score'],
+                        'raw_data': segment_data
+                    })
+            except sqlite3.OperationalError as e:
+                print(f"[LiveRamp] Search error: {e}")
+                return []
         
         return results
     

@@ -198,7 +198,7 @@ def rank_signals_with_ai(signal_spec: str, segments: List[Dict], max_results: in
         return []
     
     # LIMIT segments to prevent "Expression tree too large" error
-    MAX_SEGMENTS_FOR_PROMPT = 50  # Safe limit for Gemini API
+    MAX_SEGMENTS_FOR_PROMPT = int(os.environ.get('MAX_SEGMENTS_FOR_PROMPT', 50))  # Configurable
     
     if len(segments) > MAX_SEGMENTS_FOR_PROMPT:
         console.print(f"[dim]Reducing {len(segments)} segments to {MAX_SEGMENTS_FOR_PROMPT} for AI processing[/dim]")
@@ -422,6 +422,19 @@ def get_signals(
         match explanations. Also includes custom segment proposals when relevant.
     """
     
+    # Input validation
+    if not signal_spec or not isinstance(signal_spec, str):
+        raise ValueError("signal_spec must be a non-empty string")
+    
+    # Validate and constrain max_results
+    if max_results is None:
+        max_results = 10
+    elif not isinstance(max_results, int) or max_results < 1:
+        raise ValueError("max_results must be a positive integer")
+    elif max_results > 100:
+        console.print(f"[yellow]Warning: Limiting max_results from {max_results} to 100[/yellow]")
+        max_results = 100
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -520,7 +533,7 @@ def get_signals(
     
     # IMPORTANT: Limit segments before sending to AI to avoid "Expression tree too large" error
     # Take top segments based on existing relevance scores or coverage
-    MAX_SEGMENTS_FOR_AI = 100  # Reasonable limit for AI processing
+    MAX_SEGMENTS_FOR_AI = int(os.environ.get('MAX_SEGMENTS_FOR_AI', 100))  # Configurable via env
     
     if len(all_segments) > MAX_SEGMENTS_FOR_AI:
         console.print(f"[dim]Pre-filtering {len(all_segments)} segments to top {MAX_SEGMENTS_FOR_AI} for AI ranking[/dim]")
