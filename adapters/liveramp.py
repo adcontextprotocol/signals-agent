@@ -87,7 +87,7 @@ class LiveRampAdapter(PlatformAdapter):
         
         # Create segments table with full text search
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS segments (
+            CREATE TABLE IF NOT EXISTS liveramp_segments (
                 id INTEGER PRIMARY KEY,
                 segment_id TEXT UNIQUE NOT NULL,
                 name TEXT NOT NULL,
@@ -106,22 +106,22 @@ class LiveRampAdapter(PlatformAdapter):
         
         # Create FTS5 virtual table for full-text search
         cursor.execute('''
-            CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts 
+            CREATE VIRTUAL TABLE IF NOT EXISTS liveramp_segments_fts 
             USING fts5(
                 segment_id UNINDEXED,
                 name,
                 description,
                 provider_name,
                 categories,
-                content=segments,
+                content=liveramp_segments,
                 content_rowid=id
             )
         ''')
         
         # Create trigger to keep FTS in sync
         cursor.execute('''
-            CREATE TRIGGER IF NOT EXISTS segments_ai 
-            AFTER INSERT ON segments BEGIN
+            CREATE TRIGGER IF NOT EXISTS liveramp_segments_ai 
+            AFTER INSERT ON liveramp_segments BEGIN
                 INSERT INTO liveramp_segments_fts(
                     rowid, segment_id, name, description, provider_name, categories
                 ) VALUES (
@@ -131,14 +131,15 @@ class LiveRampAdapter(PlatformAdapter):
             END;
         ''')
         
-        # Sync status table
+        # Sync status table (matching database.py schema)
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sync_status (
-                id INTEGER PRIMARY KEY,
-                last_sync TIMESTAMP,
+            CREATE TABLE IF NOT EXISTS liveramp_sync_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sync_started TIMESTAMP,
+                sync_completed TIMESTAMP,
                 total_segments INTEGER,
-                sync_duration_seconds REAL,
-                status TEXT
+                status TEXT,
+                error_message TEXT
             )
         ''')
         
@@ -508,6 +509,20 @@ class LiveRampAdapter(PlatformAdapter):
         # ALWAYS use local cache - no automatic sync
         # Sync should only be done by the scheduled sync job
         
+        # Check if database has any segments
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Check if we have any segments
+            cursor.execute('SELECT COUNT(*) as count FROM liveramp_segments')
+            count = cursor.fetchone()['count']
+            
+            if count == 0:
+                print(f"[LiveRamp] Warning: No segments in cache. Database needs to be synced.")
+                # Return empty list instead of failing
+                return []
+        
         if search_query:
             # Use intelligent search
             segments = self.search_segments(search_query)
@@ -529,7 +544,8 @@ class LiveRampAdapter(PlatformAdapter):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT last_sync FROM sync_status 
+            SELECT sync_completed FROM liveramp_sync_status 
+            WHERE status = 'success'
             ORDER BY id DESC LIMIT 1
         ''')
         
@@ -549,10 +565,13 @@ class LiveRampAdapter(PlatformAdapter):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        sync_completed = datetime.now()
+        sync_started = sync_completed - timedelta(seconds=duration)
+        
         cursor.execute('''
-            INSERT INTO sync_status (last_sync, total_segments, sync_duration_seconds, status)
-            VALUES (?, ?, ?, ?)
-        ''', (datetime.now().isoformat(), total_segments, duration, status))
+            INSERT INTO liveramp_sync_status (sync_started, sync_completed, total_segments, status, error_message)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (sync_started.isoformat(), sync_completed.isoformat(), total_segments, status, None))
         
         conn.commit()
         conn.close()
@@ -564,7 +583,7 @@ class LiveRampAdapter(PlatformAdapter):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT * FROM sync_status 
+            SELECT * FROM liveramp_sync_status 
             ORDER BY id DESC LIMIT 1
         ''')
         

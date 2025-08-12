@@ -498,6 +498,7 @@ def get_signals(
     
     # Get segments from platform adapters
     platform_segments = []
+    platform_errors = []
     try:
         platform_segments = adapter_manager.get_all_segments(
             deliver_to.model_dump(), 
@@ -505,15 +506,34 @@ def get_signals(
             signal_spec  # Pass search query for LiveRamp and other adapters
         )
         if platform_segments:
-            console.print(f"[dim]Found {len(platform_segments)} segments from platform APIs[/dim]")
+            console.print(f"[green]✓ Found {len(platform_segments)} segments from platform APIs[/green]")
+        else:
+            console.print(f"[yellow]⚠ No segments from platform APIs (check if adapters are enabled and data is synced)[/yellow]")
     except Exception as e:
-        console.print(f"[yellow]Platform adapter error: {e}[/yellow]")
+        error_msg = f"Platform adapter error: {e}"
+        console.print(f"[red]✗ {error_msg}[/red]")
+        platform_errors.append(error_msg)
+    
+    # Log segment counts for debugging
+    console.print(f"[dim]Search summary - Database: {len(db_segments)} segments, Platforms: {len(platform_segments)} segments[/dim]")
+    
+    # Check if we have any data sources
+    if len(db_segments) == 0 and len(platform_segments) == 0:
+        console.print(f"[red]WARNING: No segments available from any source![/red]")
+        console.print(f"[yellow]Possible causes:[/yellow]")
+        console.print(f"[yellow]  1. Database not initialized (run: uv run python database.py)[/yellow]")
+        console.print(f"[yellow]  2. LiveRamp not synced (run: uv run python sync_liveramp_catalog.py)[/yellow]")
+        console.print(f"[yellow]  3. Platform adapters not configured (check environment variables)[/yellow]")
     
     # Combine database and platform segments
     all_segments = db_segments + platform_segments
     
     # Use AI to rank segments by relevance to the signal spec
-    ranked_segments = rank_signals_with_ai(signal_spec, all_segments, max_results or 10)
+    if all_segments:
+        ranked_segments = rank_signals_with_ai(signal_spec, all_segments, max_results or 10)
+    else:
+        console.print(f"[yellow]Warning: No segments found to rank for query '{signal_spec}'[/yellow]")
+        ranked_segments = []
     
     signals = []
     for segment in ranked_segments:
