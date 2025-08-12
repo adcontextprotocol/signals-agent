@@ -168,9 +168,9 @@ class LiveRampCatalogSync:
             # Clear old LiveRamp segments within transaction
             cursor.execute("DELETE FROM liveramp_segments")
             cursor.execute("DELETE FROM liveramp_segments_fts")
-        
-        # Prepare batch insert data
-        segment_data = []
+            
+            # Prepare batch insert data
+            segment_data = []
         
         for segment in segments:
             segment_id = str(segment.get('id'))
