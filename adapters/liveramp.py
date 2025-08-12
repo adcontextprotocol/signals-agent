@@ -417,7 +417,7 @@ class LiveRampAdapter(PlatformAdapter):
         finally:
             conn.close()
     
-    def search_segments(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def search_segments(self, query: str, limit: int = 200) -> List[Dict[str, Any]]:
         """Search segments using full-text search."""
         results = []
         
@@ -426,13 +426,24 @@ class LiveRampAdapter(PlatformAdapter):
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
         
-        # Sanitize FTS5 query to prevent injection
-        # Escape special FTS5 characters: " ' * ? ^
-        sanitized_query = query.replace('"', '""')
-        sanitized_query = sanitized_query.replace("'", "''")
-        sanitized_query = sanitized_query.replace('*', '')
-        sanitized_query = sanitized_query.replace('?', '')
-        sanitized_query = sanitized_query.replace('^', '')
+        # Build FTS5 query for better multi-word search
+        # Split query into words and search for ANY of them
+        words = query.lower().split()
+        
+        # Sanitize each word
+        sanitized_words = []
+        for word in words:
+            # Escape special FTS5 characters
+            word = word.replace('"', '""')
+            word = word.replace("'", "''")
+            word = word.replace('*', '')
+            word = word.replace('?', '')
+            word = word.replace('^', '')
+            sanitized_words.append(word)
+        
+        # Create OR query for FTS5 (match any word)
+        # This helps with queries like "finance bros" to match "finance" OR "bros"
+        fts_query = ' OR '.join(sanitized_words)
         
         # Use FTS5 for intelligent search
         cursor.execute('''
@@ -443,7 +454,7 @@ class LiveRampAdapter(PlatformAdapter):
                 WHERE liveramp_segments_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
-        ''', (sanitized_query, limit))
+        ''', (fts_query, limit))
         
         for row in cursor.fetchall():
             segment_data = json.loads(row['raw_data'])

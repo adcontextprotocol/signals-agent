@@ -523,18 +523,46 @@ def get_signals(
     MAX_SEGMENTS_FOR_AI = 100  # Reasonable limit for AI processing
     
     if len(all_segments) > MAX_SEGMENTS_FOR_AI:
-        console.print(f"[dim]Limiting {len(all_segments)} segments to top {MAX_SEGMENTS_FOR_AI} for AI ranking[/dim]")
+        console.print(f"[dim]Pre-filtering {len(all_segments)} segments to top {MAX_SEGMENTS_FOR_AI} for AI ranking[/dim]")
         
-        # Sort by relevance score if available, otherwise by coverage
-        all_segments.sort(
-            key=lambda x: (
-                x.get('relevance_score', 0),  # LiveRamp search relevance
-                x.get('coverage_percentage', 0),  # Coverage as secondary sort
-                x.get('name', '')  # Name as tertiary sort
-            ),
-            reverse=True
-        )
+        # Calculate text relevance score for each segment
+        query_words = set(signal_spec.lower().split())
+        
+        def calculate_relevance(segment):
+            """Calculate relevance score based on query match."""
+            name = segment.get('name', '').lower()
+            desc = segment.get('description', '').lower()
+            
+            # Exact phrase match gets highest score
+            if signal_spec.lower() in name:
+                text_score = 10.0
+            elif signal_spec.lower() in desc:
+                text_score = 8.0
+            else:
+                # Count word matches
+                name_words = set(name.split())
+                desc_words = set(desc.split())
+                
+                name_matches = len(query_words & name_words)
+                desc_matches = len(query_words & desc_words)
+                
+                # Score based on word matches (name matches worth more)
+                text_score = (name_matches * 2.0) + (desc_matches * 1.0)
+            
+            # Combine with existing scores
+            relevance = segment.get('relevance_score', 0)  # FTS score from LiveRamp
+            coverage = segment.get('coverage_percentage', 0) / 100.0  # Normalize to 0-1
+            
+            # Weighted combination: text match is most important
+            final_score = (text_score * 10.0) + (relevance * 5.0) + (coverage * 1.0)
+            
+            return final_score
+        
+        # Sort by calculated relevance
+        all_segments.sort(key=calculate_relevance, reverse=True)
         all_segments = all_segments[:MAX_SEGMENTS_FOR_AI]
+        
+        console.print(f"[dim]Top segment after filtering: {all_segments[0].get('name', 'Unknown')[:50]}...[/dim]")
     
     # Use AI to rank segments by relevance to the signal spec
     if all_segments:
