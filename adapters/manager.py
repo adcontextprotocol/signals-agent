@@ -37,10 +37,15 @@ class AdapterManager:
                 # Initialize the adapter
                 self.adapters[platform_name] = adapter_class(platform_config)
                 
-                print(f"Loaded adapter for platform: {platform_name}")
+                print(f"✓ Loaded adapter for platform: {platform_name}")
                 
             except Exception as e:
-                print(f"Failed to load adapter for {platform_name}: {e}")
+                print(f"✗ Failed to load adapter for {platform_name}: {e}")
+                # Log more details for debugging
+                if 'test_mode' in platform_config and platform_config['test_mode']:
+                    print(f"  Note: Test mode is enabled but test adapter not found")
+                if platform_name == 'liveramp':
+                    print(f"  LiveRamp requires: LIVERAMP_CLIENT_ID, LIVERAMP_SECRET_KEY environment variables")
     
     def _get_adapter_info(self, platform_name: str, platform_config: Dict[str, Any]) -> tuple[str, str]:
         """Get adapter class name and module name for a platform."""

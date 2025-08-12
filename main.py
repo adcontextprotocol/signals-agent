@@ -197,47 +197,37 @@ def rank_signals_with_ai(signal_spec: str, segments: List[Dict], max_results: in
     if not segments:
         return []
     
-    # Prepare segment data for AI analysis
+    # LIMIT segments to prevent "Expression tree too large" error
+    MAX_SEGMENTS_FOR_PROMPT = int(os.environ.get('MAX_SEGMENTS_FOR_PROMPT', 50))  # Configurable
+    
+    if len(segments) > MAX_SEGMENTS_FOR_PROMPT:
+        console.print(f"[dim]Reducing {len(segments)} segments to {MAX_SEGMENTS_FOR_PROMPT} for AI processing[/dim]")
+        segments = segments[:MAX_SEGMENTS_FOR_PROMPT]
+    
+    # Prepare segment data for AI analysis - keep it concise
     segment_data = []
-    for segment in segments:
+    for i, segment in enumerate(segments):
+        # Truncate long names/descriptions to reduce prompt size
+        name = segment.get("name", "")[:100]
+        desc = segment.get("description", "")[:150]
+        
         segment_data.append({
             "id": segment["id"],
-            "name": segment["name"], 
-            "description": segment["description"],
-            "coverage_percentage": segment["coverage_percentage"],
-            "cpm": segment["base_cpm"]
+            "name": name,
+            "desc": desc,  # Shortened key name
+            "cov": round(segment.get("coverage_percentage", 0), 1),  # Shortened and rounded
+            "cpm": round(segment.get("base_cpm", 0), 2)  # Rounded
         })
     
+    # Create a more concise prompt
     prompt = f"""
-    You are an expert signals targeting analyst. A client has requested signals for: "{signal_spec}"
+    Rank segments for: "{signal_spec}"
     
-    Here are available signal segments from various providers, including different signal types:
-    - Audience signals: demographic/behavioral targeting
-    - Contextual signals: content-based targeting
-    - Geographical signals: location-based targeting
-    - Temporal signals: time-based targeting
-    - Environmental signals: weather/events/conditions
-    - Bidding signals: custom bidding strategies
+    Top {len(segment_data)} segments:
+    {json.dumps(segment_data)}
     
-    Available segments:
-    {json.dumps(segment_data, indent=2)}
-    
-    Please:
-    1. Rank these segments by relevance to the client's request (most relevant first)
-    2. Consider all signal types - the client may benefit from multiple types
-    3. Select the top {max_results} most relevant segments
-    4. For each selected segment, provide a brief explanation of why it matches the request
-    
-    Return your response as a JSON array with this structure:
-    [
-      {{
-        "segment_id": "segment_id",
-        "relevance_score": 0.95,
-        "match_reason": "Brief explanation of why this segment matches the request"
-      }}
-    ]
-    
-    Only include segments that have at least some relevance. If none are relevant, return an empty array.
+    Return top {max_results} as JSON:
+    [{{"segment_id": "id", "relevance_score": 0.9, "match_reason": "why"}}]
     """
     
     try:
@@ -432,6 +422,19 @@ def get_signals(
         match explanations. Also includes custom segment proposals when relevant.
     """
     
+    # Input validation
+    if not signal_spec or not isinstance(signal_spec, str):
+        raise ValueError("signal_spec must be a non-empty string")
+    
+    # Validate and constrain max_results
+    if max_results is None:
+        max_results = 10
+    elif not isinstance(max_results, int) or max_results < 1:
+        raise ValueError("max_results must be a positive integer")
+    elif max_results > 100:
+        console.print(f"[yellow]Warning: Limiting max_results from {max_results} to 100[/yellow]")
+        max_results = 100
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -498,6 +501,7 @@ def get_signals(
     
     # Get segments from platform adapters
     platform_segments = []
+    platform_errors = []
     try:
         platform_segments = adapter_manager.get_all_segments(
             deliver_to.model_dump(), 
@@ -505,15 +509,80 @@ def get_signals(
             signal_spec  # Pass search query for LiveRamp and other adapters
         )
         if platform_segments:
-            console.print(f"[dim]Found {len(platform_segments)} segments from platform APIs[/dim]")
+            console.print(f"[green]✓ Found {len(platform_segments)} segments from platform APIs[/green]")
+        else:
+            console.print(f"[yellow]⚠ No segments from platform APIs (check if adapters are enabled and data is synced)[/yellow]")
     except Exception as e:
-        console.print(f"[yellow]Platform adapter error: {e}[/yellow]")
+        error_msg = f"Platform adapter error: {e}"
+        console.print(f"[red]✗ {error_msg}[/red]")
+        platform_errors.append(error_msg)
+    
+    # Log segment counts for debugging
+    console.print(f"[dim]Search summary - Database: {len(db_segments)} segments, Platforms: {len(platform_segments)} segments[/dim]")
+    
+    # Check if we have any data sources
+    if len(db_segments) == 0 and len(platform_segments) == 0:
+        console.print(f"[red]WARNING: No segments available from any source![/red]")
+        console.print(f"[yellow]Possible causes:[/yellow]")
+        console.print(f"[yellow]  1. Database not initialized (run: uv run python database.py)[/yellow]")
+        console.print(f"[yellow]  2. LiveRamp not synced (run: uv run python sync_liveramp_catalog.py)[/yellow]")
+        console.print(f"[yellow]  3. Platform adapters not configured (check environment variables)[/yellow]")
     
     # Combine database and platform segments
     all_segments = db_segments + platform_segments
     
+    # IMPORTANT: Limit segments before sending to AI to avoid "Expression tree too large" error
+    # Take top segments based on existing relevance scores or coverage
+    MAX_SEGMENTS_FOR_AI = int(os.environ.get('MAX_SEGMENTS_FOR_AI', 100))  # Configurable via env
+    
+    if len(all_segments) > MAX_SEGMENTS_FOR_AI:
+        console.print(f"[dim]Pre-filtering {len(all_segments)} segments to top {MAX_SEGMENTS_FOR_AI} for AI ranking[/dim]")
+        
+        # Calculate text relevance score for each segment
+        query_words = set(signal_spec.lower().split())
+        
+        def calculate_relevance(segment):
+            """Calculate relevance score based on query match."""
+            name = segment.get('name', '').lower()
+            desc = segment.get('description', '').lower()
+            
+            # Exact phrase match gets highest score
+            if signal_spec.lower() in name:
+                text_score = 10.0
+            elif signal_spec.lower() in desc:
+                text_score = 8.0
+            else:
+                # Count word matches
+                name_words = set(name.split())
+                desc_words = set(desc.split())
+                
+                name_matches = len(query_words & name_words)
+                desc_matches = len(query_words & desc_words)
+                
+                # Score based on word matches (name matches worth more)
+                text_score = (name_matches * 2.0) + (desc_matches * 1.0)
+            
+            # Combine with existing scores
+            relevance = segment.get('relevance_score', 0)  # FTS score from LiveRamp
+            coverage = segment.get('coverage_percentage', 0) / 100.0  # Normalize to 0-1
+            
+            # Weighted combination: text match is most important
+            final_score = (text_score * 10.0) + (relevance * 5.0) + (coverage * 1.0)
+            
+            return final_score
+        
+        # Sort by calculated relevance
+        all_segments.sort(key=calculate_relevance, reverse=True)
+        all_segments = all_segments[:MAX_SEGMENTS_FOR_AI]
+        
+        console.print(f"[dim]Top segment after filtering: {all_segments[0].get('name', 'Unknown')[:50]}...[/dim]")
+    
     # Use AI to rank segments by relevance to the signal spec
-    ranked_segments = rank_signals_with_ai(signal_spec, all_segments, max_results or 10)
+    if all_segments:
+        ranked_segments = rank_signals_with_ai(signal_spec, all_segments, max_results or 10)
+    else:
+        console.print(f"[yellow]Warning: No segments found to rank for query '{signal_spec}'[/yellow]")
+        ranked_segments = []
     
     signals = []
     for segment in ranked_segments:
