@@ -26,21 +26,44 @@ def test_liveramp():
     print(f"   - Adapter enabled: {'✓' if is_enabled else '✗'}")
     
     if not (has_client_id and has_secret):
-        print("\n   ⚠️  LiveRamp not fully configured. Set these environment variables:")
-        print("      export LIVERAMP_CLIENT_ID='your-client-id'")
-        print("      export LIVERAMP_SECRET_KEY='your-secret-key'")
-        print("      export LIVERAMP_ACCOUNT_ID='your-account-id'")
-        print("      export LIVERAMP_TOKEN_URI='your-token-uri'")
-        print("      export LIVERAMP_OWNER_ORG='your-owner-org'")
+        # Check if we're in Fly.io environment
+        if os.path.exists('/data'):
+            print("\n   ⚠️  LiveRamp configuration not detected. Check Fly secrets:")
+            print("      fly secrets list")
+            print("\n   If secrets are set but not detected, they may need a redeploy:")
+            print("      fly deploy")
+        else:
+            print("\n   ⚠️  LiveRamp not fully configured. Set these environment variables:")
+            print("      export LIVERAMP_CLIENT_ID='your-client-id'")
+            print("      export LIVERAMP_SECRET_KEY='your-secret-key'")
+            print("      export LIVERAMP_ACCOUNT_ID='your-account-id'")
+            print("      export LIVERAMP_TOKEN_URI='your-token-uri'")
+            print("      export LIVERAMP_OWNER_ORG='your-owner-org'")
     
     # Check database tables
     print("\n2. Database Check:")
-    db_path = os.environ.get('DATABASE_PATH', 'signals_agent.db')
+    # Try multiple possible database locations
+    possible_paths = [
+        os.environ.get('DATABASE_PATH'),  # Environment variable
+        '/data/signals_agent.db',         # Fly.io production path
+        'signals_agent.db',               # Local development path
+    ]
     
-    if not os.path.exists(db_path):
-        print(f"   ✗ Database not found at {db_path}")
+    db_path = None
+    for path in possible_paths:
+        if path and os.path.exists(path):
+            db_path = path
+            break
+    
+    if not db_path:
+        print(f"   ✗ Database not found. Checked paths:")
+        for path in possible_paths:
+            if path:
+                print(f"      - {path}")
         print("     Run: uv run python database.py")
         return
+    
+    print(f"   ✓ Database found at: {db_path}")
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
