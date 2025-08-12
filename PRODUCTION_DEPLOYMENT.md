@@ -9,76 +9,90 @@
 3. **LiveRamp database not synced** - No segment data available even when enabled
 4. **Silent failures** - ✅ Fixed: Added better error logging and diagnostic messages
 
-### Required Environment Variables
+### Required Fly.io Secrets
 
-#### For LiveRamp Integration
+#### Check What's Already Set
 ```bash
-export LIVERAMP_CLIENT_ID="your-client-id"
-export LIVERAMP_ACCOUNT_ID="your-service-account"
-export LIVERAMP_SECRET_KEY="your-secret-key"
-export LIVERAMP_TOKEN_URI="your-token-uri"
-export LIVERAMP_OWNER_ORG="your-owner-org"
+fly secrets list
 ```
 
-#### For Index Exchange Integration
+#### Set/Update LiveRamp Secrets (if not already set)
 ```bash
-export IX_USERNAME="your-username@example.com"
-export IX_PASSWORD="your-password"
-export IX_DEFAULT_ACCOUNT="your-default-account-id"
+fly secrets set LIVERAMP_CLIENT_ID="your-client-id"
+fly secrets set LIVERAMP_ACCOUNT_ID="your-service-account"
+fly secrets set LIVERAMP_SECRET_KEY="your-secret-key"
+fly secrets set LIVERAMP_TOKEN_URI="your-token-uri"
+fly secrets set LIVERAMP_OWNER_ORG="your-owner-org"
 ```
 
-#### For Gemini AI (Required for ranking)
+#### Set/Update Index Exchange Secrets (if using)
 ```bash
-export GEMINI_API_KEY="your-gemini-api-key"
+fly secrets set IX_USERNAME="your-username@example.com"
+fly secrets set IX_PASSWORD="your-password"
+fly secrets set IX_DEFAULT_ACCOUNT="your-default-account-id"
 ```
 
-#### Database Path (for Fly.io)
+#### Set/Update Gemini API Key (Required for ranking)
 ```bash
-export DATABASE_PATH="/data/signals_agent.db"
+fly secrets set GEMINI_API_KEY="your-gemini-api-key"
 ```
+
+Note: DATABASE_PATH is automatically set to "/data/signals_agent.db" in production
 
 ### Deployment Steps
 
-1. **Set Environment Variables**
-   - Add all required environment variables to your Fly.io secrets or deployment environment
-   - LiveRamp credentials are REQUIRED for LiveRamp segments to appear
-
-2. **Initialize Database**
+1. **Check and Set Fly Secrets**
    ```bash
+   # See what's already configured
+   fly secrets list
+   
+   # Set any missing secrets (especially LiveRamp)
+   fly secrets set LIVERAMP_CLIENT_ID="..."
+   # etc.
+   ```
+   LiveRamp credentials are REQUIRED for LiveRamp segments to appear
+
+2. **SSH into Fly.io and Initialize Database**
+   ```bash
+   fly ssh console
+   cd /app
    uv run python database.py
    ```
-   This creates tables and adds sample segments.
+   This creates tables (no sample data in production).
 
-3. **Sync LiveRamp Catalog** (if LiveRamp is enabled)
+3. **Sync LiveRamp Catalog** (required for LiveRamp segments)
    ```bash
+   # Still in SSH session
    uv run python sync_liveramp_catalog.py --full
    ```
    This downloads the entire LiveRamp catalog (~200,000 segments).
    Note: This can take 30-60 minutes for a full sync.
 
-4. **Start the Server**
+4. **Deploy/Restart the Server**
    ```bash
-   uv run python main.py
+   fly deploy  # From your local machine
    ```
 
 ### Verification Checklist
 
-Run these commands to verify deployment:
+SSH into Fly.io to verify:
 
 ```bash
-# Check database has segments
-sqlite3 $DATABASE_PATH "SELECT COUNT(*) FROM signal_segments;"
-# Should return > 0 (14 with sample data)
+fly ssh console
+cd /app
 
-# Check LiveRamp segments (if enabled)
-sqlite3 $DATABASE_PATH "SELECT COUNT(*) FROM liveramp_segments;"
+# Check LiveRamp segments (main data source)
+sqlite3 /data/signals_agent.db "SELECT COUNT(*) FROM liveramp_segments;"
 # Should return > 0 after sync (200,000+ when fully synced)
 
 # Test LiveRamp configuration
 uv run python test_liveramp.py
 
-# Test search functionality
-uv run python client.py --prompt "finance" --limit 10
+# Exit SSH
+exit
+
+# Test the API endpoint from outside
+curl https://your-app.fly.dev/health
 ```
 
 ### Common Issues and Solutions
@@ -92,9 +106,9 @@ uv run python client.py --prompt "finance" --limit 10
 
 #### Issue: No LiveRamp segments appearing
 **Solution:**
-- Check LiveRamp is enabled: Environment variables must be set
-- Verify sync has been run: `sqlite3 signals_agent.db "SELECT COUNT(*) FROM liveramp_segments;"`
-- Check for sync errors in logs
+- Check LiveRamp secrets are set: `fly secrets list`
+- SSH in and verify sync: `fly ssh console -C "sqlite3 /data/signals_agent.db 'SELECT COUNT(*) FROM liveramp_segments;'"`
+- Check logs for errors: `fly logs`
 
 #### Issue: Platform adapter errors
 **Solution:**
