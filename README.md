@@ -98,6 +98,25 @@ uv run python database.py
 uv run python main.py
 ```
 
+### Development Mode - Search UI
+
+For local development, you can run both the MCP server and a web-based search UI:
+
+```bash
+# Run both MCP server (port 8000) and Search UI (port 8001)
+./start_services_dev.sh
+
+# Access the search UI at http://localhost:8001/search
+```
+
+The Search UI provides:
+- Visual search interface with score breakdowns
+- RAG (semantic), FTS (keyword), and Hybrid search modes
+- AI-powered query expansion toggle
+- Real-time search results with explanations
+
+**Note:** The Search UI is for development only. Production deployments only run the MCP server.
+
 ## Protocol Implementation
 
 This agent implements the following tasks from the Signals Activation Protocol:
@@ -169,6 +188,75 @@ Set `test_mode: true` to use simulated API responses for development/testing.
 - When platform APIs don't provide coverage data, shows "Unknown" instead of estimates
 - When segments have no fees configured, shows "Unknown" for pricing
 - Clear differentiation between known and unknown data points
+
+## Smart Search Strategy
+
+### Overview
+
+The system intelligently determines the best search mode (RAG, FTS, or Hybrid) and whether to use AI query expansion based on query characteristics.
+
+### Search Modes
+
+**RAG (Vector/Semantic Search)**
+- Best for: Conceptual, thematic, and behavioral queries
+- Uses AI embeddings for semantic similarity
+- Examples: "eco-friendly", "luxury lifestyle", "health conscious"
+
+**FTS (Full-Text Search)**
+- Best for: Exact matches and technical queries
+- Keyword-based matching
+- Examples: Company names, segment IDs, boolean queries
+
+**Hybrid Search**
+- Best for: Natural language descriptions
+- Combines RAG and FTS with weighted scoring
+- Examples: "parents with young children", "urban professionals"
+
+### Automatic Strategy Selection
+
+When using the MCP interface, the system automatically analyzes queries for:
+
+1. **Technical Patterns** → FTS
+   - Boolean operators (AND, OR, NOT)
+   - Quoted phrases, segment IDs
+   - Company/brand names
+
+2. **Behavioral/Intent Indicators** → RAG
+   - Keywords: interested, likely, seeking, lifestyle
+   - Queries needing semantic understanding
+
+3. **Demographic Terms** → Hybrid
+   - Keywords: age, parent, income, education
+   - Benefits from both approaches
+
+4. **Query Length Heuristics**
+   - 1 word → RAG with expansion
+   - 2 words → Hybrid with expansion
+   - 3-4 words → Hybrid (conditional expansion)
+   - 5+ words → Hybrid without expansion
+
+### AI Query Expansion
+
+**When Applied**:
+- Short queries (1-2 words)
+- Vague/general terms
+- Conceptual queries
+
+**When Skipped**:
+- Technical IDs or codes
+- Boolean operators present
+- Very specific queries (5+ words)
+- Exclusion terms (without, except, only)
+
+The AI generates 5 related terms focusing on industry categories, demographics, behaviors, and purchase intent.
+
+### Performance Considerations
+
+- **RAG**: ~300-400ms (3-7s with expansion)
+- **FTS**: ~20-50ms (fastest)
+- **Hybrid**: ~400-500ms (3-7s with expansion)
+
+Query expansion adds 2-5 seconds due to AI generation and multiple embedding operations.
 
 ## 🚀 Try the Live Demo
 

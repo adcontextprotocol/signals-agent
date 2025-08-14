@@ -8,6 +8,16 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from .base import PlatformAdapter
 import time
+import os
+import sys
+
+# Import from parent directory
+try:
+    from embeddings import EmbeddingsManager
+except ImportError:
+    # Fallback for when module is run directly
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from embeddings import EmbeddingsManager
 
 class LiveRampAdapter(PlatformAdapter):
     """Enhanced adapter with full catalog sync and local caching."""
@@ -32,6 +42,16 @@ class LiveRampAdapter(PlatformAdapter):
             raise ValueError("LiveRamp adapter requires client_id and secret_key in config")
         
         self._init_cache_db()
+        
+        # Initialize embeddings manager if Gemini is configured
+        self.embeddings_manager = None
+        parent_config = config.get('parent_config', {})
+        if parent_config.get('gemini_api_key'):
+            try:
+                self.embeddings_manager = EmbeddingsManager(parent_config, self.db_path)
+                print(f"[LiveRamp] ✓ Embeddings manager initialized")
+            except Exception as e:
+                print(f"[LiveRamp] Could not initialize embeddings manager: {e}")
     
     def authenticate(self) -> Dict[str, Any]:
         """Authenticate with LiveRamp using OAuth2 client credentials flow."""
@@ -167,10 +187,10 @@ class LiveRampAdapter(PlatformAdapter):
         }
         
         # Process in batches to avoid memory exhaustion
-        BATCH_SIZE = 1000  # Process 1000 segments at a time
+        BATCH_SIZE = 5000  # Process 5000 segments at a time for efficiency
         batch_segments = []
         total_processed = 0
-        limit = 100  # Max per API request
+        limit = 100  # LiveRamp API maximum per page
         after_cursor = None
         page = 0
         
@@ -298,18 +318,51 @@ class LiveRampAdapter(PlatformAdapter):
                 if isinstance(input_records, dict):
                     reach_count = input_records.get('count')
             
-            # Extract pricing
+            # Extract pricing (check multiple locations)
             has_pricing = False
             cpm_price = None
-            subscriptions = segment.get('subscriptions', [])
-            for sub in subscriptions:
-                if isinstance(sub, dict):
-                    price_info = sub.get('price', {})
-                    if isinstance(price_info, dict):
-                        cpm_price = price_info.get('cpm')
-                        if cpm_price:
-                            has_pricing = True
-                            break
+            
+            # First check 'pricing' field (LiveRamp structure)
+            pricing_obj = segment.get('pricing', {})
+            if pricing_obj:
+                # Try digitalAdTargeting first
+                if 'digitalAdTargeting' in pricing_obj:
+                    dat = pricing_obj['digitalAdTargeting']
+                    if 'value' in dat and 'amount' in dat['value']:
+                        amount = dat['value']['amount']
+                        unit = dat['value'].get('unit', 'CENTS')
+                        if unit == 'CENTS':
+                            cpm_price = amount / 100.0  # Convert cents to dollars
+                        else:
+                            cpm_price = float(amount)
+                        has_pricing = True
+                
+                # Fallback to other pricing types
+                if not has_pricing:
+                    for price_type in ['tvTargeting', 'contentMarketing']:
+                        if price_type in pricing_obj:
+                            pt = pricing_obj[price_type]
+                            if 'value' in pt and 'amount' in pt['value']:
+                                amount = pt['value']['amount']
+                                unit = pt['value'].get('unit', 'CENTS')
+                                if unit == 'CENTS':
+                                    cpm_price = amount / 100.0
+                                else:
+                                    cpm_price = float(amount)
+                                has_pricing = True
+                                break
+            
+            # Fallback to subscriptions (older structure)
+            if not has_pricing:
+                subscriptions = segment.get('subscriptions', [])
+                for sub in subscriptions:
+                    if isinstance(sub, dict):
+                        price_info = sub.get('price', {})
+                        if isinstance(price_info, dict):
+                            cpm_price = price_info.get('cpm')
+                            if cpm_price:
+                                has_pricing = True
+                                break
             
             # Extract categories
             categories = []
@@ -369,16 +422,79 @@ class LiveRampAdapter(PlatformAdapter):
                     if isinstance(input_records, dict):
                         reach_count = input_records.get('count')
                 
-                # Extract pricing
+                # Extract pricing (Enhanced)
                 has_pricing = False
                 cpm_price = None
                 subscriptions = segment.get('subscriptions', [])
-                for sub in subscriptions:
-                    if isinstance(sub, dict):
-                        price_info = sub.get('price', {})
-                        if isinstance(price_info, dict):
-                            cpm_price = price_info.get('cpm')
-                            if cpm_price:
+                
+                # Try multiple methods to find pricing
+                if subscriptions:
+                    for sub in subscriptions:
+                        if isinstance(sub, dict):
+                            # Check price object
+                            price_info = sub.get('price', {})
+                            if isinstance(price_info, dict):
+                                # Try multiple price fields
+                                for field in ['cpm', 'CPM', 'value', 'Value', 'amount', 'cost']:
+                                    if field in price_info and price_info[field] is not None:
+                                        try:
+                                            cpm_price = float(price_info[field])
+                                            has_pricing = True
+                                            break
+                                        except (ValueError, TypeError):
+                                            pass
+                            
+                            # Check subscription root
+                            if not has_pricing:
+                                for field in ['cpm', 'CPM', 'price', 'cost']:
+                                    if field in sub and sub[field] is not None:
+                                        try:
+                                            cpm_price = float(sub[field])
+                                            has_pricing = True
+                                            break
+                                        except (ValueError, TypeError):
+                                            pass
+                        if has_pricing:
+                            break
+                
+                # Check 'pricing' field (LiveRamp structure)
+                if not has_pricing:
+                    pricing_obj = segment.get('pricing', {})
+                    if pricing_obj:
+                        # Try digitalAdTargeting first
+                        if 'digitalAdTargeting' in pricing_obj:
+                            dat = pricing_obj['digitalAdTargeting']
+                            if 'value' in dat and 'amount' in dat['value']:
+                                amount = dat['value']['amount']
+                                unit = dat['value'].get('unit', 'CENTS')
+                                if unit == 'CENTS':
+                                    cpm_price = amount / 100.0  # Convert cents to dollars
+                                else:
+                                    cpm_price = float(amount)
+                                has_pricing = True
+                        
+                        # Fallback to other pricing types
+                        if not has_pricing:
+                            for price_type in ['tvTargeting', 'contentMarketing']:
+                                if price_type in pricing_obj:
+                                    pt = pricing_obj[price_type]
+                                    if 'value' in pt and 'amount' in pt['value']:
+                                        amount = pt['value']['amount']
+                                        unit = pt['value'].get('unit', 'CENTS')
+                                        if unit == 'CENTS':
+                                            cpm_price = amount / 100.0
+                                        else:
+                                            cpm_price = float(amount)
+                                        has_pricing = True
+                                        break
+                
+                # Check root level if still no pricing
+                if not has_pricing:
+                    for field in ['price', 'cpm', 'CPM', 'cost']:
+                        if field in segment:
+                            val = segment[field]
+                            if isinstance(val, (int, float)):
+                                cpm_price = float(val)
                                 has_pricing = True
                                 break
                 
@@ -416,6 +532,97 @@ class LiveRampAdapter(PlatformAdapter):
             raise
         finally:
             conn.close()
+    
+    def search_segments_hybrid(self, query: str, limit: int = 20, rag_weight: float = 0.7, use_expansion: bool = True) -> List[Dict[str, Any]]:
+        """Hybrid search combining RAG and FTS scores with optional query expansion.
+        
+        Args:
+            query: Search query
+            limit: Maximum number of results
+            rag_weight: Weight for RAG scores (0-1), FTS gets (1-rag_weight)
+            use_expansion: Whether to use AI query expansion for RAG search
+            
+        Returns:
+            List of segment dictionaries with combined scores
+        """
+        results_map = {}
+        
+        # Get RAG results if available
+        rag_results = []
+        if self.embeddings_manager:
+            try:
+                rag_results = self.embeddings_manager.get_segments_with_embeddings(query, limit * 2, use_expansion)
+                for result in rag_results:
+                    seg_id = result['segment_id']
+                    results_map[seg_id] = result
+                    # Normalize similarity score to 0-1 range
+                    results_map[seg_id]['rag_score'] = result.get('similarity_score', 0)
+            except Exception as e:
+                print(f"[LiveRamp] RAG search error: {e}")
+        
+        # Get FTS results
+        fts_results = self.search_segments(query, limit * 2)
+        
+        # Normalize FTS scores and combine
+        max_relevance = max([abs(r.get('relevance_score', 0)) for r in fts_results], default=1)
+        
+        for result in fts_results:
+            seg_id = result['segment_id']
+            
+            # Normalize FTS score to 0-1 range
+            fts_score = abs(result.get('relevance_score', 0)) / max(abs(max_relevance), 1)
+            
+            if seg_id in results_map:
+                # Combine scores
+                results_map[seg_id]['fts_score'] = fts_score
+                results_map[seg_id]['combined_score'] = (
+                    rag_weight * results_map[seg_id]['rag_score'] +
+                    (1 - rag_weight) * fts_score
+                )
+            else:
+                # FTS-only result
+                result['fts_score'] = fts_score
+                result['rag_score'] = 0
+                result['combined_score'] = (1 - rag_weight) * fts_score
+                results_map[seg_id] = result
+        
+        # Sort by combined score
+        results = list(results_map.values())
+        results.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+        
+        return results[:limit]
+    
+    def search_segments_rag(self, query: str, limit: int = 10, use_expansion: bool = True) -> List[Dict[str, Any]]:
+        """Search segments using RAG (vector similarity) search with optional query expansion.
+        
+        Args:
+            query: Search query
+            limit: Maximum number of results
+            use_expansion: Whether to use AI query expansion
+            
+        Returns:
+            List of segment dictionaries with similarity scores
+        """
+        if not self.embeddings_manager:
+            # Fall back to FTS if embeddings are not available
+            return self.search_segments(query, limit)
+        
+        try:
+            # Use embeddings manager for vector similarity search with expansion
+            results = self.embeddings_manager.get_segments_with_embeddings(query, limit, use_expansion)
+            
+            # Add proper score fields for UI display
+            for result in results:
+                # RAG score is the similarity score (already in 0-1 range)
+                result['rag_score'] = result.get('similarity_score', 0)
+                result['fts_score'] = 0  # No FTS score in pure RAG search
+                result['combined_score'] = result['rag_score']  # In pure RAG, combined = RAG score
+                result['relevance_score'] = 0  # No FTS relevance in pure RAG
+                
+            return results
+        except Exception as e:
+            print(f"[LiveRamp] RAG search failed, falling back to FTS: {e}")
+            return self.search_segments(query, limit)
     
     def search_segments(self, query: str, limit: int = 200) -> List[Dict[str, Any]]:
         """Search segments using full-text search."""
@@ -480,7 +687,12 @@ class LiveRampAdapter(PlatformAdapter):
                         'has_pricing': row['has_pricing'],
                         'categories': row['categories'].split(', ') if row['categories'] else [],
                         'relevance_score': row['relevance_score'],
-                        'raw_data': segment_data
+                        'raw_data': segment_data,
+                        # Add normalized scores for UI display
+                        'fts_score': 1.0,  # FTS results have maximum FTS score
+                        'rag_score': 0,  # No RAG score in pure FTS search
+                        'combined_score': 1.0,  # In pure FTS, combined = FTS score
+                        'similarity_score': 0  # No similarity in pure FTS
                     })
             except sqlite3.OperationalError as e:
                 print(f"[LiveRamp] Search error: {e}")
@@ -543,8 +755,8 @@ class LiveRampAdapter(PlatformAdapter):
                 return []
         
         if search_query:
-            # Use intelligent search
-            segments = self.search_segments(search_query)
+            # Use hybrid search for best results (combines RAG and FTS)
+            segments = self.search_segments_hybrid(search_query, limit=100)
         else:
             # Limit results to prevent overwhelming the system
             # When no search query, return a reasonable sample

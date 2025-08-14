@@ -11,7 +11,10 @@ from typing import List, Optional, Dict, Any
 
 import google.generativeai as genai
 from fastmcp import FastMCP
+from fastapi import Query, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from rich.console import Console
+import time
 
 from database import init_db
 from schemas import *
@@ -190,6 +193,123 @@ def generate_discovery_message(signal_spec: str, signals: List[SignalResponse],
         )
     
     return " ".join(message_parts)
+
+
+def determine_search_strategy(signal_spec: str) -> tuple[str, bool]:
+    """Determine the best search mode and whether to use query expansion.
+    
+    Returns:
+        Tuple of (search_mode, use_expansion)
+        - search_mode: 'rag', 'fts', or 'hybrid'
+        - use_expansion: whether to use AI query expansion
+    
+    Decision logic for search mode:
+    - Conceptual/semantic queries → RAG (e.g., "eco-friendly", "luxury lifestyle")
+    - Exact matches/technical terms → FTS (e.g., segment IDs, company names)
+    - Natural language descriptions → Hybrid (e.g., "parents with young children")
+    - Behavioral/intent queries → RAG (e.g., "likely to buy", "interested in")
+    """
+    
+    # Check for technical/exact match patterns
+    if any(op in signal_spec.upper() for op in [' AND ', ' OR ', ' NOT ', '"', "'"]):
+        # Boolean operators indicate FTS is better
+        return ('fts', False)
+    
+    # Check for segment IDs or technical codes
+    if signal_spec.replace('-', '').replace('_', '').replace('.', '').isalnum() and \
+       any(c.isdigit() for c in signal_spec) and len(signal_spec) > 8:
+        # Looks like a technical ID
+        return ('fts', False)
+    
+    # Check for company/brand names (usually capitalized, specific)
+    words = signal_spec.split()
+    capitalized_count = sum(1 for w in words if w and w[0].isupper())
+    if capitalized_count >= len(words) * 0.6 and len(words) <= 3:
+        # Likely company/brand names
+        return ('fts', False)
+    
+    # Check for behavioral/intent indicators → RAG is best
+    intent_indicators = [
+        'interested', 'likely', 'intent', 'looking', 'seeking', 'want',
+        'lifestyle', 'behavior', 'habit', 'preference', 'affinity',
+        'enthusiast', 'lover', 'fan', 'conscious', 'aware', 'minded'
+    ]
+    if any(indicator in signal_spec.lower() for indicator in intent_indicators):
+        return ('rag', True)
+    
+    # Check for conceptual/thematic queries → RAG is best
+    conceptual_terms = [
+        'luxury', 'premium', 'budget', 'eco', 'green', 'sustainable',
+        'health', 'wellness', 'fitness', 'active', 'affluent', 'trendy',
+        'modern', 'traditional', 'conservative', 'progressive'
+    ]
+    if any(term in signal_spec.lower() for term in conceptual_terms):
+        return ('rag', True)
+    
+    # Check for demographic queries → Hybrid works well
+    demographic_terms = [
+        'age', 'gender', 'income', 'education', 'parent', 'family',
+        'married', 'single', 'retired', 'student', 'professional',
+        'homeowner', 'renter', 'urban', 'suburban', 'rural'
+    ]
+    if any(term in signal_spec.lower() for term in demographic_terms):
+        # Hybrid search with expansion for demographic queries
+        return ('hybrid', len(words) <= 3)  # Expand if query is short
+    
+    # Default strategy based on query length
+    word_count = len(words)
+    
+    if word_count == 1:
+        # Single word - use RAG with expansion
+        return ('rag', True)
+    elif word_count == 2:
+        # Two words - use hybrid with expansion
+        return ('hybrid', True)
+    elif word_count <= 4:
+        # Medium query - use hybrid, expansion depends on specificity
+        has_specific_terms = any(w.lower() in ['with', 'without', 'only', 'not', 'except'] for w in words)
+        return ('hybrid', not has_specific_terms)
+    else:
+        # Long query - use hybrid without expansion
+        return ('hybrid', False)
+
+
+def should_use_query_expansion(signal_spec: str) -> bool:
+    """Legacy function - use determine_search_strategy instead.
+    
+    Logic:
+    - Short queries (1-2 words): YES - likely need expansion
+    - Vague/general terms: YES - benefit from related terms
+    - Very specific queries (4+ words): NO - already detailed
+    - Technical IDs/codes: NO - exact match needed
+    - Queries with operators (AND, OR, quotes): NO - user has specific intent
+    """
+    # Check for operators that indicate specific intent
+    if any(op in signal_spec.upper() for op in [' AND ', ' OR ', ' NOT ', '"', "'"]):
+        return False
+    
+    # Check for technical IDs (all numbers or alphanumeric codes)
+    if signal_spec.replace('-', '').replace('_', '').isalnum() and any(c.isdigit() for c in signal_spec):
+        return False
+    
+    words = signal_spec.split()
+    word_count = len(words)
+    
+    # Short queries benefit from expansion
+    if word_count <= 2:
+        return True
+    
+    # Very specific queries don't need expansion
+    if word_count >= 5:
+        return False
+    
+    # Check for vague terms that benefit from expansion
+    vague_terms = ['people', 'users', 'customers', 'buyers', 'interested', 'looking', 'shopping', 'seeking']
+    if any(term in signal_spec.lower() for term in vague_terms):
+        return True
+    
+    # Medium-length queries (3-4 words) - use expansion by default
+    return True
 
 
 def rank_signals_with_ai(signal_spec: str, segments: List[Dict], max_results: int = 10) -> List[Dict]:
@@ -502,7 +622,22 @@ def get_signals(
     # Get segments from platform adapters
     platform_segments = []
     platform_errors = []
+    
+    # Determine the best search strategy for this query
+    search_mode, use_expansion = determine_search_strategy(signal_spec)
+    console.print(f"[dim]Search strategy: {search_mode.upper()} mode with {'AI expansion' if use_expansion else 'exact matching'}[/dim]")
+    
+    # Log the decision reasoning for transparency
+    if search_mode == 'rag':
+        console.print(f"[dim]→ Using RAG for conceptual/semantic search[/dim]")
+    elif search_mode == 'fts':
+        console.print(f"[dim]→ Using FTS for exact/technical matching[/dim]")
+    else:  # hybrid
+        console.print(f"[dim]→ Using Hybrid to combine semantic and keyword matching[/dim]")
+    
     try:
+        # TODO: Pass search_mode and use_expansion to adapters that support it
+        # For now, adapters will use their default search method
         platform_segments = adapter_manager.get_all_segments(
             deliver_to.model_dump(), 
             principal_id,
@@ -943,8 +1078,6 @@ def activate_signal(
         status="activating",
         context_id=activation_context_id
     )
-
-
 
 if __name__ == "__main__":
     init_db()

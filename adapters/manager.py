@@ -34,7 +34,9 @@ class AdapterManager:
                 # Get the adapter class
                 adapter_class = getattr(module, adapter_class_name)
                 
-                # Initialize the adapter
+                # Initialize the adapter with parent config for LiveRamp (for Gemini access)
+                if platform_name == 'liveramp':
+                    platform_config['parent_config'] = self.config
                 self.adapters[platform_name] = adapter_class(platform_config)
                 
                 print(f"✓ Loaded adapter for platform: {platform_name}")
