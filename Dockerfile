@@ -11,7 +11,7 @@ WORKDIR /app
 # Copy requirements and install Python dependencies
 COPY pyproject.toml ./
 RUN pip install uv
-RUN uv pip install --system fastmcp pydantic rich google-generativeai requests fastapi uvicorn
+RUN uv pip install --system fastmcp pydantic rich google-generativeai requests fastapi uvicorn numpy sqlite-vec
 
 # Copy application code
 COPY . .
@@ -28,7 +28,7 @@ RUN mkdir -p /data
 
 # Don't initialize database in build - it will be on mounted volume
 
-# Expose port for MCP server
+# Expose MCP server port
 EXPOSE 8000
 
 # Create an entrypoint script to handle database initialization
@@ -42,5 +42,5 @@ exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 # Use entrypoint to ensure database exists
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Default command runs the MCP server
+# Default command runs MCP server only
 CMD ["uv", "run", "fastmcp", "run", "main.py", "--transport", "http", "--port", "8000", "--host", "0.0.0.0"]

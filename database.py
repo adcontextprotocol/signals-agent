@@ -171,7 +171,8 @@ def create_tables(cursor: sqlite3.Cursor):
             sync_completed TIMESTAMP,
             total_segments INTEGER,
             status TEXT,
-            error_message TEXT
+            error_message TEXT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     

@@ -12,6 +12,7 @@ primary_region = 'fra'
   app = "uv run fastmcp run main.py --transport http --port 8000 --host 0.0.0.0"
   sync = "uv run python sync_liveramp_catalog.py --full"
 
+# MCP service configuration
 [http_service]
   internal_port = 8000
   force_https = true
