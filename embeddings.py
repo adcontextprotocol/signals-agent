@@ -220,16 +220,23 @@ class EmbeddingsManager:
         embedding_bytes = embedding.tobytes()
         
         try:
-            # Store in main embeddings table
+            # Begin transaction for atomic operation
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # First, delete any existing records for this segment_id
+            cursor.execute('DELETE FROM liveramp_embeddings WHERE segment_id = ?', (segment_id,))
+            cursor.execute('DELETE FROM vec_liveramp_embeddings WHERE segment_id = ?', (segment_id,))
+            
+            # Now insert the new records
             cursor.execute('''
-                INSERT OR REPLACE INTO liveramp_embeddings 
+                INSERT INTO liveramp_embeddings 
                 (segment_id, embedding_text, embedding_hash, embedding)
                 VALUES (?, ?, ?, ?)
             ''', (segment_id, text, text_hash, embedding_bytes))
             
             # Store in vector table for similarity search
             cursor.execute('''
-                INSERT OR REPLACE INTO vec_liveramp_embeddings 
+                INSERT INTO vec_liveramp_embeddings 
                 (segment_id, embedding)
                 VALUES (?, ?)
             ''', (segment_id, embedding_bytes))
@@ -237,7 +244,7 @@ class EmbeddingsManager:
             conn.commit()
         except Exception as e:
             conn.rollback()
-            raise e
+            raise Exception(f"Failed to store embedding for segment {segment_id}: {str(e)}")
         finally:
             conn.close()
     
@@ -401,7 +408,19 @@ class EmbeddingsManager:
         cursor = conn.cursor()
         
         results = []
-        for segment_id, distance in similar_segments:
+        
+        # Get min and max distances for normalization
+        if similar_segments:
+            distances = [d for _, d in similar_segments]
+            min_distance = min(distances)
+            max_distance = max(distances)
+            distance_range = max_distance - min_distance
+            
+            # If all distances are the same, use a small range to avoid division by zero
+            if distance_range < 0.001:
+                distance_range = 1.0
+        
+        for i, (segment_id, distance) in enumerate(similar_segments):
             cursor.execute('''
                 SELECT * FROM liveramp_segments 
                 WHERE segment_id = ?
@@ -411,9 +430,20 @@ class EmbeddingsManager:
             if row:
                 segment_data = json.loads(row['raw_data'])
                 
-                # Calculate similarity score (convert distance to similarity)
-                # Using exponential decay for better score distribution
-                similarity_score = np.exp(-distance / 100)
+                # Calculate similarity score using multiple methods for better distribution
+                # 1. Min-max normalization (inverted so lower distance = higher score)
+                normalized_score = 1.0 - ((distance - min_distance) / distance_range) if distance_range > 0 else 1.0
+                
+                # 2. Rank-based score (top result gets 1.0, decreases linearly)
+                rank_score = 1.0 - (i / len(similar_segments))
+                
+                # 3. Exponential decay with better scaling
+                # Use smaller divisor for more spread in scores
+                exp_score = np.exp(-distance / 50)  # Changed from 100 to 50 for more variation
+                
+                # Combine the scores with weights
+                # Prioritize normalized score but include rank for tie-breaking
+                similarity_score = (0.7 * normalized_score + 0.2 * exp_score + 0.1 * rank_score)
                 
                 # Calculate coverage percentage
                 coverage = None
@@ -422,12 +452,13 @@ class EmbeddingsManager:
                     coverage = round(min(coverage, 50.0), 1)
                 
                 results.append({
-                    'segment_id': row['segment_id'],
+                    'id': row['segment_id'],  # Use 'id' as primary field for compatibility
                     'name': row['name'],
                     'description': row['description'],
-                    'provider': row['provider_name'],
+                    'data_provider': f"LiveRamp ({row['provider_name']})",  # Changed to data_provider with LiveRamp prefix
                     'coverage_percentage': coverage,
-                    'cpm': row['cpm_price'],
+                    'base_cpm': row['cpm_price'],  # Changed from 'cpm' to 'base_cpm'
+                    'revenue_share_percentage': 0.0,  # Add missing field
                     'has_pricing': row['has_pricing'],
                     'categories': row['categories'].split(', ') if row['categories'] else [],
                     'similarity_score': float(similarity_score),

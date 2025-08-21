@@ -9,8 +9,9 @@ primary_region = 'fra'
 [build]
 
 [processes]
-  app = "uv run fastmcp run main.py --transport http --port 8000 --host 0.0.0.0"
-  sync = "uv run python sync_liveramp_catalog.py --full"
+  app = "fastmcp run main.py --transport http --host 0.0.0.0 --port 8000 --path /mcp/"
+  sync = "python sync_liveramp_catalog.py --full"
+  embeddings = "python scheduled_embeddings.py"
 
 # MCP service configuration
 [http_service]
@@ -47,3 +48,14 @@ primary_region = 'fra'
   
   [vm.schedule]
     cron = "0 2 * * *"  # Daily at 2 AM UTC
+
+# Cron configuration for embeddings generation  
+# Run daily at 3 AM UTC (after sync completes)
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  processes = ['embeddings']
+  
+  [vm.schedule]
+    cron = "0 3 * * *"  # Daily at 3 AM UTC
