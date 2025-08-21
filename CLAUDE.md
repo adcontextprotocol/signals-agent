@@ -1,16 +1,79 @@
-# Audience Agent - Implementation Notes
+# Audience Agent - MCP Server for AI Clients
 
-This document provides implementation details and instructions for working with the Audience Activation Protocol agent.
+**🔴 IMPORTANT**: The production deployment at https://audience-agent.fly.dev is an **MCP server for AI clients**, not a web application.
 
-## Overview
+## Production MCP Server
 
-The Audience Agent implements the Audience Activation Protocol with support for:
-- Natural language audience discovery using Gemini AI
-- Multiple decisioning platform integrations (currently Index Exchange)
-- Principal-based access control for multi-tenant support
-- Transparent data availability indicators
+### Connecting MCP Clients
 
-## Running the Agent
+The production server exposes Model Context Protocol (MCP) tools via HTTP JSON-RPC:
+
+**Base URL**: `https://audience-agent.fly.dev`
+
+**Endpoints**:
+- `POST /mcp` - Main MCP JSON-RPC endpoint
+- `GET /tools` - List available tools
+- `GET /health` - Health check
+- `POST /tools/{tool_name}` - REST-style tool access
+
+### Example MCP Client Configuration
+
+```json
+{
+  "servers": {
+    "audience-agent": {
+      "url": "https://audience-agent.fly.dev/mcp",
+      "transport": "http",
+      "description": "Audience discovery and activation agent"
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+1. **get_signal_examples**
+   - Returns examples of how to use the signal discovery tasks
+   - No parameters required
+
+2. **get_signals**
+   - Discover audience segments based on natural language
+   - Parameters:
+     - `signal_spec` (string, required): Natural language description
+     - `deliver_to` (object, required): Delivery specification
+     - `limit` (integer, optional): Max results (default: 20)
+
+3. **activate_signal**
+   - Activate a segment on a decisioning platform
+   - Parameters:
+     - `signals_agent_segment_id` (string, required)
+     - `platform` (string, required)
+     - `context_id` (string, required)
+     - `principal_id` (string, optional)
+
+### Example MCP Request
+
+```bash
+curl -X POST https://audience-agent.fly.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "get_signals",
+    "params": {
+      "signal_spec": "luxury car buyers",
+      "deliver_to": {
+        "platforms": ["index-exchange"],
+        "max_cpm": 5.0
+      },
+      "limit": 10
+    },
+    "id": 1
+  }'
+```
+
+## Local Development
+
+### Running the Agent Locally
 
 ### Prerequisites
 ```bash

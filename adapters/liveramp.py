@@ -678,12 +678,13 @@ class LiveRampAdapter(PlatformAdapter):
                         coverage = round(min(coverage, 50.0), 1)
                     
                     results.append({
-                        'segment_id': row['segment_id'],
+                        'id': row['segment_id'],  # Use 'id' as primary field for compatibility
                         'name': row['name'],
                         'description': row['description'],
-                        'provider': row['provider_name'],
+                        'data_provider': f"LiveRamp ({row['provider_name']})",
                         'coverage_percentage': coverage,
-                        'cpm': row['cpm_price'],
+                        'base_cpm': row['cpm_price'],  # Changed from 'cpm' to 'base_cpm'
+                        'revenue_share_percentage': 0.0,  # Add missing field
                         'has_pricing': row['has_pricing'],
                         'categories': row['categories'].split(', ') if row['categories'] else [],
                         'relevance_score': row['relevance_score'],

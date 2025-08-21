@@ -42,5 +42,5 @@ exec "$@"' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 # Use entrypoint to ensure database exists
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Default command runs MCP server only
-CMD ["uv", "run", "fastmcp", "run", "main.py", "--transport", "http", "--port", "8000", "--host", "0.0.0.0"]
+# Default command runs FastMCP server with HTTP transport at /mcp/
+CMD ["fastmcp", "run", "main.py", "--transport", "http", "--host", "0.0.0.0", "--port", "8000", "--path", "/mcp/"]
