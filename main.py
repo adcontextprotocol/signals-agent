@@ -26,6 +26,41 @@ from config_loader import load_config
 custom_segments: Dict[str, Dict] = {}
 segment_activations: Dict[str, Dict] = {}
 
+# Memory cleanup configuration
+MAX_CUSTOM_SEGMENTS = 1000
+MAX_SEGMENT_ACTIVATIONS = 5000
+CLEANUP_INTERVAL_HOURS = 24
+
+
+def cleanup_memory_caches():
+    """Clean up old entries from in-memory caches to prevent memory leaks."""
+    global custom_segments, segment_activations
+    
+    # Clean up old custom segments (keep only recent ones)
+    if len(custom_segments) > MAX_CUSTOM_SEGMENTS:
+        # Sort by creation time, keep most recent
+        segments_by_time = sorted(
+            custom_segments.items(),
+            key=lambda x: x[1].get('created_at', ''),
+            reverse=True
+        )
+        # Keep only the most recent MAX_CUSTOM_SEGMENTS
+        custom_segments = dict(segments_by_time[:MAX_CUSTOM_SEGMENTS])
+        console.print(f"[dim]Cleaned up old custom segments, kept {len(custom_segments)}[/dim]")
+    
+    # Clean up old activations (keep only those from last 24 hours)
+    if len(segment_activations) > MAX_SEGMENT_ACTIVATIONS:
+        cutoff_time = (datetime.now() - timedelta(hours=CLEANUP_INTERVAL_HOURS)).isoformat()
+        cleaned_activations = {}
+        
+        for key, activation in segment_activations.items():
+            activation_time = activation.get('activation_started_at', '')
+            if activation_time > cutoff_time:
+                cleaned_activations[key] = activation
+        
+        segment_activations = cleaned_activations
+        console.print(f"[dim]Cleaned up old activations, kept {len(segment_activations)}[/dim]")
+
 
 def get_db_connection():
     """Get database connection with row factory."""
@@ -668,7 +703,7 @@ def get_signals(
     
     # IMPORTANT: Limit segments before sending to AI to avoid "Expression tree too large" error
     # Take top segments based on existing relevance scores or coverage
-    MAX_SEGMENTS_FOR_AI = int(os.environ.get('MAX_SEGMENTS_FOR_AI', 100))  # Configurable via env
+    MAX_SEGMENTS_FOR_AI = int(os.environ.get('MAX_SEGMENTS_FOR_AI', 50))  # Reduced default to save memory
     
     if len(all_segments) > MAX_SEGMENTS_FOR_AI:
         console.print(f"[dim]Pre-filtering {len(all_segments)} segments to top {MAX_SEGMENTS_FOR_AI} for AI ranking[/dim]")
@@ -814,6 +849,9 @@ def get_signals(
                 has_pricing_data=segment.get('has_pricing_data', True)  # Database segments have pricing
             )
             signals.append(signal)
+    
+    # Clean up memory caches periodically
+    cleanup_memory_caches()
     
     # Generate custom segment proposals
     custom_proposals = []
