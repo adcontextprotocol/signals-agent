@@ -36,6 +36,21 @@ class PlatformAdapter(ABC):
             'data': data,
             'cached_at': datetime.now()
         }
+        # Clean up expired entries to prevent memory leak
+        self._cleanup_expired_cache()
+    
+    def _cleanup_expired_cache(self):
+        """Remove expired cache entries to prevent memory leak."""
+        now = datetime.now()
+        expired_keys = []
+        
+        for cache_key, cache_entry in self.cache.items():
+            cached_at = cache_entry.get('cached_at')
+            if cached_at and (now - cached_at) >= self.cache_duration:
+                expired_keys.append(cache_key)
+        
+        for key in expired_keys:
+            del self.cache[key]
     
     @abstractmethod
     def authenticate(self) -> Dict[str, Any]:
