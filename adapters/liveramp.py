@@ -639,6 +639,14 @@ class LiveRampAdapter(PlatformAdapter):
         
         # Build FTS5 query - use OR for multi-word search
         # Each word is individually quoted for FTS5
+        # FIXED: Limit terms to prevent potential FTS expression complexity issues
+        MAX_FTS_TERMS = 30  # Reasonable limit for FTS5 OR queries
+        
+        if len(words) > MAX_FTS_TERMS:
+            words = words[:MAX_FTS_TERMS]
+            # Log this for debugging
+            print(f"[LiveRamp] Limited search to {MAX_FTS_TERMS} terms to prevent FTS complexity issues")
+        
         fts_terms = []
         for word in words:
             if word.strip():  # Skip empty strings
@@ -648,7 +656,7 @@ class LiveRampAdapter(PlatformAdapter):
         if not fts_terms:
             return []
         
-        # Create OR query for FTS5
+        # Create OR query for FTS5 - this is more efficient than regular SQL OR
         fts_query = ' OR '.join(fts_terms)
         
         # Use context manager to ensure connection is properly closed

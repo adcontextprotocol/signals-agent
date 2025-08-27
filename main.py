@@ -20,6 +20,7 @@ from database import init_db
 from schemas import *
 from adapters.manager import AdapterManager
 from config_loader import load_config
+from database_search import DatabaseSearchService
 
 
 # In-memory storage for custom segments and activations
@@ -353,25 +354,25 @@ def rank_signals_with_ai(signal_spec: str, segments: List[Dict], max_results: in
         return []
     
     # LIMIT segments to prevent "Expression tree too large" error
-    MAX_SEGMENTS_FOR_PROMPT = int(os.environ.get('MAX_SEGMENTS_FOR_PROMPT', 50))  # Configurable
+    MAX_SEGMENTS_FOR_PROMPT = int(os.environ.get('MAX_SEGMENTS_FOR_PROMPT', 20))  # Reduced for safety
     
     if len(segments) > MAX_SEGMENTS_FOR_PROMPT:
         console.print(f"[dim]Reducing {len(segments)} segments to {MAX_SEGMENTS_FOR_PROMPT} for AI processing[/dim]")
         segments = segments[:MAX_SEGMENTS_FOR_PROMPT]
     
-    # Prepare segment data for AI analysis - keep it concise
+    # Prepare segment data for AI analysis - keep it very concise to avoid expression tree depth issues
     segment_data = []
     for i, segment in enumerate(segments):
-        # Truncate long names/descriptions to reduce prompt size
-        name = segment.get("name", "")[:100]
-        desc = segment.get("description", "")[:150]
+        # Aggressively truncate to reduce complexity
+        name = segment.get("name", "")[:50]  # Even shorter
+        desc = segment.get("description", "")[:80]  # Much shorter
         
         segment_data.append({
             "id": segment["id"],
             "name": name,
-            "desc": desc,  # Shortened key name
-            "cov": round(segment.get("coverage_percentage", 0), 1),  # Shortened and rounded
-            "cpm": round(segment.get("base_cpm", 0), 2)  # Rounded
+            "desc": desc,
+            "cov": round(segment.get("coverage_percentage", 0), 1),
+            "cpm": round(segment.get("base_cpm", 0), 2)
         })
     
     # Create a more concise prompt
@@ -408,7 +409,35 @@ def rank_signals_with_ai(signal_spec: str, segments: List[Dict], max_results: in
         return ranked_segments
         
     except Exception as e:
-        console.print(f"[yellow]AI ranking failed ({e}), using basic text matching[/yellow]")
+        error_msg = str(e)
+        console.print(f"[yellow]AI ranking failed ({error_msg}), using basic text matching[/yellow]")
+        
+        # If the error is about expression tree depth, try a simpler approach
+        if "expression tree" in error_msg.lower() or "depth" in error_msg.lower():
+            console.print(f"[dim]Expression tree too deep - using text-based ranking instead[/dim]")
+            # Use the same text relevance algorithm from get_signals
+            query_words = set(signal_spec.lower().split())
+            
+            def calculate_text_relevance(segment):
+                name = segment.get('name', '').lower()
+                desc = segment.get('description', '').lower()
+                
+                # Exact phrase match gets highest score
+                if signal_spec.lower() in name:
+                    return 10.0
+                elif signal_spec.lower() in desc:
+                    return 8.0
+                else:
+                    # Count word matches
+                    name_words = set(name.split())
+                    desc_words = set(desc.split())
+                    name_matches = len(query_words & name_words)
+                    desc_matches = len(query_words & desc_words)
+                    return (name_matches * 2.0) + (desc_matches * 1.0)
+            
+            # Sort by text relevance
+            segments.sort(key=calculate_text_relevance, reverse=True)
+        
         # Fallback to basic text matching
         return segments[:max_results]
 
@@ -416,7 +445,12 @@ def rank_signals_with_ai(signal_spec: str, segments: List[Dict], max_results: in
 def generate_custom_segment_proposals(signal_spec: str, existing_segments: List[Dict]) -> List[Dict]:
     """Use Gemini to propose custom segments that could be created for this query."""
     
-    existing_names = [seg["name"] for seg in existing_segments]
+    # Limit existing segments to prevent expression tree depth issues
+    MAX_EXISTING_SEGMENTS = 10
+    if len(existing_segments) > MAX_EXISTING_SEGMENTS:
+        existing_segments = existing_segments[:MAX_EXISTING_SEGMENTS]
+    
+    existing_names = [seg["name"][:60] for seg in existing_segments]  # Truncate names
     
     prompt = f"""
     You are a contextual signal targeting expert. A client is looking for: "{signal_spec}"
@@ -453,7 +487,11 @@ def generate_custom_segment_proposals(signal_spec: str, existing_segments: List[
         return proposals
         
     except Exception as e:
-        console.print(f"[yellow]Custom segment proposal generation failed ({e})[/yellow]")
+        error_msg = str(e)
+        if "expression tree" in error_msg.lower() or "depth" in error_msg.lower():
+            console.print(f"[yellow]Custom segment proposal skipped due to expression tree depth limit[/yellow]")
+        else:
+            console.print(f"[yellow]Custom segment proposal generation failed ({error_msg})[/yellow]")
         return []
 
 
@@ -467,6 +505,9 @@ model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
 # Initialize platform adapters
 adapter_manager = AdapterManager(config)
+
+# Initialize database search service
+db_search_service = DatabaseSearchService(config)
 
 mcp = FastMCP(name="SignalsActivationAgent")
 console = Console()
@@ -590,69 +631,28 @@ def get_signals(
         console.print(f"[yellow]Warning: Limiting max_results from {max_results} to 100[/yellow]")
         max_results = 100
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Determine catalog access based on principal
+    # Determine principal access level for database search
     principal_access_level = 'public'  # Default
     if principal_id:
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT access_level FROM principals WHERE principal_id = ?", (principal_id,))
         principal_row = cursor.fetchone()
         if principal_row:
             principal_access_level = principal_row['access_level']
+        conn.close()
     
-    # Build query based on principal access level
-    if principal_access_level == 'public':
-        catalog_filter = "catalog_access = 'public'"
-    elif principal_access_level == 'personalized':
-        catalog_filter = "catalog_access IN ('public', 'personalized')"
-    else:  # private
-        catalog_filter = "catalog_access IN ('public', 'personalized', 'private')"
-    
-    query = f"""
-        SELECT * FROM signal_segments 
-        WHERE {catalog_filter}
-    """
-    params = []
-    
+    # Prepare filters for database search
+    filter_dict = {}
     if filters:
         if filters.catalog_types:
-            placeholders = ','.join('?' * len(filters.catalog_types))
-            query += f" AND signal_type IN ({placeholders})"
-            params.extend(filters.catalog_types)
-        
+            filter_dict['catalog_types'] = filters.catalog_types
         if filters.data_providers:
-            placeholders = ','.join('?' * len(filters.data_providers))
-            query += f" AND data_provider IN ({placeholders})"
-            params.extend(filters.data_providers)
-        
+            filter_dict['data_providers'] = filters.data_providers
         if filters.max_cpm:
-            query += " AND base_cpm <= ?"
-            params.append(filters.max_cpm)
-        
+            filter_dict['max_cpm'] = filters.max_cpm
         if filters.min_coverage_percentage:
-            query += " AND coverage_percentage >= ?"
-            params.append(filters.min_coverage_percentage)
-    
-    # Apply flexible text matching on name and description
-    if signal_spec:
-        # Split the spec into individual words for better matching
-        words = signal_spec.lower().split()
-        word_conditions = []
-        for word in words:
-            word_conditions.append("(LOWER(name) LIKE ? OR LOWER(description) LIKE ?)")
-            word_pattern = f"%{word}%"
-            params.extend([word_pattern, word_pattern])
-        
-        if word_conditions:
-            # Use OR to match any of the words
-            query += " AND (" + " OR ".join(word_conditions) + ")"
-    
-    query += f" ORDER BY coverage_percentage DESC LIMIT ?"
-    params.append(max_results or 10)
-    
-    cursor.execute(query, params)
-    db_segments = [dict(row) for row in cursor.fetchall()]
+            filter_dict['min_coverage_percentage'] = filters.min_coverage_percentage
     
     # Get segments from platform adapters
     platform_segments = []
@@ -670,9 +670,28 @@ def get_signals(
     else:  # hybrid
         console.print(f"[dim]→ Using Hybrid to combine semantic and keyword matching[/dim]")
     
+    # Search database segments using the determined strategy
+    db_segments = []
     try:
-        # TODO: Pass search_mode and use_expansion to adapters that support it
-        # For now, adapters will use their default search method
+        db_segments = db_search_service.search(
+            query=signal_spec,
+            search_mode=search_mode,
+            filters=filter_dict,
+            principal_access_level=principal_access_level,
+            limit=max_results or 20,
+            use_expansion=use_expansion
+        )
+        if db_segments:
+            console.print(f"[green]✓ Found {len(db_segments)} segments from database using {search_mode.upper()} search[/green]")
+        else:
+            console.print(f"[yellow]⚠ No segments found in database[/yellow]")
+    except Exception as e:
+        error_msg = f"Database search error: {e}"
+        console.print(f"[red]✗ {error_msg}[/red]")
+        # Continue with empty db_segments
+    
+    try:
+        # Get platform segments (LiveRamp adapter already supports search_mode and use_expansion)
         platform_segments = adapter_manager.get_all_segments(
             deliver_to.model_dump(), 
             principal_id,
@@ -703,7 +722,7 @@ def get_signals(
     
     # IMPORTANT: Limit segments before sending to AI to avoid "Expression tree too large" error
     # Take top segments based on existing relevance scores or coverage
-    MAX_SEGMENTS_FOR_AI = int(os.environ.get('MAX_SEGMENTS_FOR_AI', 50))  # Reduced default to save memory
+    MAX_SEGMENTS_FOR_AI = int(os.environ.get('MAX_SEGMENTS_FOR_AI', 20))  # Further reduced to prevent tree depth issues
     
     if len(all_segments) > MAX_SEGMENTS_FOR_AI:
         console.print(f"[dim]Pre-filtering {len(all_segments)} segments to top {MAX_SEGMENTS_FOR_AI} for AI ranking[/dim]")
