@@ -926,7 +926,6 @@ def get_signals(
     elif len(signals) == 0:
         clarification_needed = "No matching signals found. Try broadening your search terms or checking available platforms."
     
-    conn.close()
     return GetSignalsResponse(
         message=message,
         context_id=context_id,
