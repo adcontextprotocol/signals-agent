@@ -553,7 +553,7 @@ class LiveRampAdapter(PlatformAdapter):
             try:
                 rag_results = self.embeddings_manager.get_segments_with_embeddings(query, limit * 2, use_expansion)
                 for result in rag_results:
-                    seg_id = result['segment_id']
+                    seg_id = result['id']  # Fixed: use 'id' field instead of 'segment_id'
                     results_map[seg_id] = result
                     # Normalize similarity score to 0-1 range
                     results_map[seg_id]['rag_score'] = result.get('similarity_score', 0)
@@ -567,7 +567,7 @@ class LiveRampAdapter(PlatformAdapter):
         max_relevance = max([abs(r.get('relevance_score', 0)) for r in fts_results], default=1)
         
         for result in fts_results:
-            seg_id = result['segment_id']
+            seg_id = result['id']  # Fixed: use 'id' field instead of 'segment_id'
             
             # Normalize FTS score to 0-1 range
             fts_score = abs(result.get('relevance_score', 0)) / max(abs(max_relevance), 1)
@@ -639,6 +639,14 @@ class LiveRampAdapter(PlatformAdapter):
         
         # Build FTS5 query - use OR for multi-word search
         # Each word is individually quoted for FTS5
+        # FIXED: Limit terms to prevent potential FTS expression complexity issues
+        MAX_FTS_TERMS = 30  # Reasonable limit for FTS5 OR queries
+        
+        if len(words) > MAX_FTS_TERMS:
+            words = words[:MAX_FTS_TERMS]
+            # Log this for debugging
+            print(f"[LiveRamp] Limited search to {MAX_FTS_TERMS} terms to prevent FTS complexity issues")
+        
         fts_terms = []
         for word in words:
             if word.strip():  # Skip empty strings
@@ -648,7 +656,7 @@ class LiveRampAdapter(PlatformAdapter):
         if not fts_terms:
             return []
         
-        # Create OR query for FTS5
+        # Create OR query for FTS5 - this is more efficient than regular SQL OR
         fts_query = ' OR '.join(fts_terms)
         
         # Use context manager to ensure connection is properly closed

@@ -264,6 +264,21 @@ uv run python client.py
 - Verify principal has mapped account
 - Check platform API is accessible
 
+## Environment Configuration
+
+### AI Processing Limits
+To prevent "Expression tree too large" errors when processing large datasets, the system uses configurable limits:
+
+```bash
+# Maximum segments to send to AI for ranking (default: 20)
+export MAX_SEGMENTS_FOR_AI=15
+
+# Maximum segments to include in AI ranking prompts (default: 20)  
+export MAX_SEGMENTS_FOR_PROMPT=15
+```
+
+Lower values reduce memory usage and prevent expression tree depth errors but may reduce result quality for very large catalogs.
+
 ## Development Notes
 
 ### Key Design Decisions
@@ -271,8 +286,18 @@ uv run python client.py
 2. **Caching**: 60-second cache to reduce API load
 3. **Security**: Principal-based access control for multi-tenancy
 4. **Extensibility**: Easy to add new platform adapters
+5. **Memory Safety**: Conservative limits on AI processing to prevent expression tree depth errors
+
+### Performance Optimization
+- **Proper Search Architecture**: Database segments now use FTS5/RAG/hybrid search instead of primitive SQL LIKE
+- **No Expression Tree Depth Issues**: Eliminated deeply nested SQL OR queries that caused SQLite EXPR_DEPTH errors
+- **Intelligent Search Strategy**: RAG for semantic queries, FTS for exact matching, hybrid for balanced results  
+- **Graceful Fallbacks**: FTS search when RAG is unavailable, AI ranking fallback to text-based ranking
+- **Optimized Prompts**: JSON payloads to Gemini are truncated and simplified to prevent parsing errors
 
 ### Future Enhancements
+- **Generate vector embeddings** for signal_segments table to enable full RAG search
+- **Implement hybrid search** combining FTS5 + vector similarity for database segments
 - Add more platform adapters (Trade Desk, DV360, etc.)
 - Implement segment activation and status checking
 - Add webhook support for activation notifications
