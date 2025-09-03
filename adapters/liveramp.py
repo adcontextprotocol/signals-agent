@@ -553,7 +553,7 @@ class LiveRampAdapter(PlatformAdapter):
             try:
                 rag_results = self.embeddings_manager.get_segments_with_embeddings(query, limit * 2, use_expansion)
                 for result in rag_results:
-                    seg_id = result['segment_id']
+                    seg_id = result['id']  # Fixed: use 'id' field instead of 'segment_id'
                     results_map[seg_id] = result
                     # Normalize similarity score to 0-1 range
                     results_map[seg_id]['rag_score'] = result.get('similarity_score', 0)
@@ -567,7 +567,7 @@ class LiveRampAdapter(PlatformAdapter):
         max_relevance = max([abs(r.get('relevance_score', 0)) for r in fts_results], default=1)
         
         for result in fts_results:
-            seg_id = result['segment_id']
+            seg_id = result['id']  # Fixed: use 'id' field instead of 'segment_id'
             
             # Normalize FTS score to 0-1 range
             fts_score = abs(result.get('relevance_score', 0)) / max(abs(max_relevance), 1)
