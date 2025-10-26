@@ -44,26 +44,15 @@ class AdapterManager:
             except Exception as e:
                 print(f"✗ Failed to load adapter for {platform_name}: {e}")
                 # Log more details for debugging
-                if 'test_mode' in platform_config and platform_config['test_mode']:
-                    print(f"  Note: Test mode is enabled but test adapter not found")
                 if platform_name == 'liveramp':
                     print(f"  LiveRamp requires: LIVERAMP_CLIENT_ID, LIVERAMP_SECRET_KEY environment variables")
     
     def _get_adapter_info(self, platform_name: str, platform_config: Dict[str, Any]) -> tuple[str, str]:
         """Get adapter class name and module name for a platform."""
-        # Check if this is a test mode
-        test_mode = platform_config.get('test_mode', False)
-        
         if platform_name == 'index-exchange':
-            if test_mode:
-                return 'TestIndexExchangeAdapter', 'adapters.test_index_exchange'
-            else:
-                return 'IndexExchangeAdapter', 'adapters.index_exchange'
+            return 'IndexExchangeAdapter', 'adapters.index_exchange'
         elif platform_name == 'liveramp':
-            if test_mode:
-                return 'TestLiveRampAdapter', 'adapters.test_liveramp'
-            else:
-                return 'LiveRampAdapter', 'adapters.liveramp'
+            return 'LiveRampAdapter', 'adapters.liveramp'
         elif platform_name == 'the-trade-desk':
             return 'TheTradeDeskAdapter', 'adapters.the_trade_desk'
         elif platform_name == 'openx':
