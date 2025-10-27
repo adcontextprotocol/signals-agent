@@ -773,16 +773,20 @@ def get_signals(
         console.print(f"[yellow]Warning: No segments found to rank for query '{signal_spec}'[/yellow]")
         ranked_segments = []
     
+    # Get database connection for checking deployments and pricing
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
     signals = []
     for segment in ranked_segments:
         platform_deployments = []
-        
+
         # Handle platform adapter segments differently than database segments
         if segment.get('platform'):
             # This is a platform adapter segment
             platform_name = segment['platform']
             account_id = segment.get('account_id')
-            
+
             # Check if this platform was requested
             if isinstance(deliver_to.platforms, str) and deliver_to.platforms == "all":
                 # Include all platforms
@@ -798,7 +802,7 @@ def get_signals(
                     else:  # String format
                         requested_platforms.add(p)
                 include_platform = platform_name in requested_platforms
-            
+
             if include_platform:
                 # Create a deployment record for the platform segment
                 platform_deployments = [PlatformDeployment(
@@ -814,7 +818,7 @@ def get_signals(
         else:
             # This is a database segment - get platform deployments as before
             cursor.execute("""
-                SELECT * FROM platform_deployments 
+                SELECT * FROM platform_deployments
                 WHERE signals_agent_segment_id = ?
             """, (segment['id'],))
             deployments = [dict(row) for row in cursor.fetchall()]
@@ -868,7 +872,10 @@ def get_signals(
                 has_pricing_data=segment.get('has_pricing_data', True)  # Database segments have pricing
             )
             signals.append(signal)
-    
+
+    # Close database connection
+    conn.close()
+
     # Clean up memory caches periodically
     cleanup_memory_caches()
     
@@ -1134,6 +1141,7 @@ def activate_signal(
         status="activating",
         context_id=activation_context_id
     )
+
 
 if __name__ == "__main__":
     init_db()
